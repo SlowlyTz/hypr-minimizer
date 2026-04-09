@@ -8,9 +8,10 @@ import minimizer
 
 
 class HyprctlMock:
-    def __init__(self, active_windows=None, active_workspaces=None):
+    def __init__(self, active_windows=None, active_workspaces=None, clients=None):
         self.active_windows = list(active_windows or [])
         self.active_workspaces = list(active_workspaces or [])
+        self.clients = list(clients or [])
         self.commands = []
 
     def __call__(self, args, check, text, capture_output):
@@ -22,20 +23,46 @@ class HyprctlMock:
         if args == ["hyprctl", "-j", "activeworkspace"]:
             return Mock(stdout=json.dumps(self.active_workspaces.pop(0)))
 
+        if args == ["hyprctl", "-j", "clients"]:
+            return Mock(stdout=json.dumps(self.clients.pop(0)))
+
         return Mock(stdout="")
 
 
 @pytest.fixture()
 def state_file(tmp_path, monkeypatch):
-    path = tmp_path / "hypr_minimizer_state.json"
+    path = tmp_path / "hypr-minimizer" / "state.json"
     monkeypatch.setattr(minimizer, "STATE_FILE", path)
+    monkeypatch.setattr(minimizer, "LEGACY_STATE_FILE", tmp_path / "legacy-state.json")
     return path
 
 
 def read_state(path: Path) -> dict[str, list[str]]:
     if not path.exists():
         return {}
-    return json.loads(path.read_text())
+    raw = json.loads(path.read_text())
+    if isinstance(raw, dict) and "stacks" in raw:
+        return raw["stacks"]
+    return raw
+
+
+def read_history(path: Path) -> list[dict[str, list[str]]]:
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text())
+    if not isinstance(raw, dict):
+        return []
+    return raw.get("history", [])
+
+
+def client(address, workspace_id=1, window_class="app", title="Window", pid=1234):
+    return {
+        "address": address,
+        "workspace": {"id": workspace_id},
+        "class": window_class,
+        "title": title,
+        "pid": pid,
+    }
 
 
 def test_stash_records_windows_in_lifo_order_per_workspace(state_file, monkeypatch):
@@ -61,9 +88,50 @@ def test_stash_records_windows_in_lifo_order_per_workspace(state_file, monkeypat
     ]
 
 
+def test_stash_deduplicates_existing_window(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa", "0xbbb"]}))
+    hyprctl = HyprctlMock(active_windows=[{"address": "0xaaa", "workspace": {"id": 1}}])
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+
+    assert read_state(state_file) == {"1": ["0xbbb", "0xaaa"]}
+
+
+def test_undo_restores_last_stash(state_file, monkeypatch):
+    hyprctl = HyprctlMock(
+        active_windows=[{"address": "0xaaa", "workspace": {"id": 1}}],
+        clients=[[client("0xaaa")]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+    minimizer.undo()
+
+    assert read_state(state_file) == {}
+    assert read_history(state_file) == []
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "activewindow"],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xaaa",
+        ],
+        ["hyprctl", "-j", "clients"],
+        ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+    ]
+
+
 def test_pop_uses_lifo_order_for_current_workspace_only(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
     state_file.write_text(json.dumps({"1": ["0xaaa", "0xbbb"], "2": ["0xccc"]}))
-    hyprctl = HyprctlMock(active_workspaces=[{"id": 1}])
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[[client("0xaaa"), client("0xbbb"), client("0xccc", workspace_id=2)]],
+    )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
 
     minimizer.pop()
@@ -71,27 +139,131 @@ def test_pop_uses_lifo_order_for_current_workspace_only(state_file, monkeypatch)
     assert read_state(state_file) == {"1": ["0xaaa"], "2": ["0xccc"]}
     assert hyprctl.commands == [
         ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xbbb"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xbbb"],
     ]
 
 
+def test_pop_prunes_closed_windows(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa", "0xmissing"], "2": ["0xccc"]}))
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[[client("0xaaa"), client("0xccc", workspace_id=2)]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.pop()
+
+    assert read_state(state_file) == {"2": ["0xccc"]}
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+    ]
+
+
+def test_undo_re_minimizes_last_pop(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"]}))
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[[client("0xaaa")], [client("0xaaa")]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.pop()
+    minimizer.undo()
+
+    assert read_state(state_file) == {"1": ["0xaaa"]}
+    assert read_history(state_file) == []
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "clients"],
+        ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+        ["hyprctl", "-j", "clients"],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xaaa",
+        ],
+    ]
+
+
+def test_stash_others_minimizes_current_workspace_except_active(
+    state_file, monkeypatch
+):
+    hyprctl = HyprctlMock(
+        active_windows=[{"address": "0xbbb", "workspace": {"id": 1}}],
+        clients=[
+            [
+                client("0xaaa"),
+                client("0xbbb"),
+                client("0xccc", workspace_id=2),
+                client("0xddd"),
+            ]
+        ],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash_others()
+
+    assert read_state(state_file) == {"1": ["0xaaa", "0xddd"]}
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "activewindow"],
+        ["hyprctl", "-j", "clients"],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xaaa",
+        ],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xddd",
+        ],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xbbb"],
+    ]
+
+
 def test_pop_does_not_cross_workspace_boundaries(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
     state_file.write_text(json.dumps({"1": ["0xaaa"], "2": ["0xccc"]}))
-    hyprctl = HyprctlMock(active_workspaces=[{"id": 3}])
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 3}],
+        clients=[[client("0xaaa"), client("0xccc", workspace_id=2)]],
+    )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
 
     minimizer.pop()
 
     assert read_state(state_file) == {"1": ["0xaaa"], "2": ["0xccc"]}
-    assert hyprctl.commands == [["hyprctl", "-j", "activeworkspace"]]
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "clients"],
+    ]
 
 
 def test_pop_all_restores_only_current_workspace_in_lifo_order(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
     state_file.write_text(
         json.dumps({"1": ["0xaaa", "0xbbb", "0xddd"], "2": ["0xccc"]})
     )
-    hyprctl = HyprctlMock(active_workspaces=[{"id": 1}])
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[
+            [
+                client("0xaaa"),
+                client("0xbbb"),
+                client("0xccc", workspace_id=2),
+                client("0xddd"),
+            ]
+        ],
+    )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
 
     minimizer.pop_all()
@@ -99,7 +271,148 @@ def test_pop_all_restores_only_current_workspace_in_lifo_order(state_file, monke
     assert read_state(state_file) == {"2": ["0xccc"]}
     assert hyprctl.commands == [
         ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xddd"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xbbb"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
     ]
+
+
+def test_restore_address_restores_original_workspace(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"], "2": ["0xccc"]}))
+    hyprctl = HyprctlMock(clients=[[client("0xaaa"), client("0xccc", workspace_id=2)]])
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.restore_address("0xccc")
+
+    assert read_state(state_file) == {"1": ["0xaaa"]}
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "clients"],
+        ["hyprctl", "dispatch", "movetoworkspace", "2,address:0xccc"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xccc"],
+    ]
+
+
+def test_undo_is_stackable_and_capped_to_five_steps(state_file, monkeypatch):
+    hyprctl = HyprctlMock(
+        active_windows=[
+            {"address": "0x001", "workspace": {"id": 1}},
+            {"address": "0x002", "workspace": {"id": 1}},
+            {"address": "0x003", "workspace": {"id": 1}},
+            {"address": "0x004", "workspace": {"id": 1}},
+            {"address": "0x005", "workspace": {"id": 1}},
+            {"address": "0x006", "workspace": {"id": 1}},
+        ],
+        clients=[
+            [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
+            [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
+            [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
+            [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
+            [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
+        ],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    for _ in range(6):
+        minimizer.stash()
+
+    assert len(read_history(state_file)) == 5
+
+    for _ in range(5):
+        minimizer.undo()
+
+    assert read_state(state_file) == {"1": ["0x001"]}
+    assert read_history(state_file) == []
+
+
+def test_minimized_entries_include_window_metadata_and_prune_missing(
+    state_file, monkeypatch
+):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa", "0xmissing"]}))
+    hyprctl = HyprctlMock(
+        clients=[[client("0xaaa", window_class="Alacritty", title="shell", pid=42)]]
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.minimized_entries(prune=True) == [
+        {
+            "workspace_id": "1",
+            "address": "0xaaa",
+            "stack_index": 0,
+            "app_name": "Alacritty",
+            "class": "Alacritty",
+            "icon": "Alacritty",
+            "title": "shell",
+            "pid": 42,
+            "label": "Alacritty - shell pid:42",
+        }
+    ]
+    assert read_state(state_file) == {"1": ["0xaaa"]}
+
+
+def test_brave_web_app_uses_desktop_file_name_and_icon(
+    state_file, tmp_path, monkeypatch
+):
+    applications_dir = tmp_path / ".local" / "share" / "applications"
+    applications_dir.mkdir(parents=True)
+    desktop_file = applications_dir / "brave-iaaomclhaojnjcbgngbodcfnkgamlimo-Default.desktop"
+    desktop_file.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env xdg-open",
+                "[Desktop Entry]",
+                "Name=Notion",
+                "Icon=brave-iaaomclhaojnjcbgngbodcfnkgamlimo-Default",
+                "StartupWMClass=crx_iaaomclhaojnjcbgngbodcfnkgamlimo",
+            ]
+        )
+    )
+
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"]}))
+    monkeypatch.setattr(minimizer.Path, "home", lambda: tmp_path)
+    hyprctl = HyprctlMock(
+        clients=[
+            [
+                client(
+                    "0xaaa",
+                    window_class="brave-iaaomclhaojnjcbgngbodcfnkgamlimo-Default",
+                    title="Notion - Wiki | Startseite | Notion",
+                    pid=4239,
+                )
+                | {"initialTitle": "Notion"}
+            ]
+        ]
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.minimized_entries(prune=True) == [
+        {
+            "workspace_id": "1",
+            "address": "0xaaa",
+            "stack_index": 0,
+            "app_name": "Notion",
+            "class": "brave-iaaomclhaojnjcbgngbodcfnkgamlimo-Default",
+            "icon": "brave-iaaomclhaojnjcbgngbodcfnkgamlimo-Default",
+            "title": "Notion - Wiki | Startseite | Notion",
+            "pid": 4239,
+            "label": "Notion - Wiki | Startseite | Notion pid:4239",
+        }
+    ]
+
+
+def test_menu_label_includes_workspace_number():
+    entry = {
+        "app_name": "Notion",
+        "workspace_id": "3",
+        "title": "Notion - Wiki | Startseite | Notion",
+        "address": "0xaaa",
+    }
+
+    assert minimizer.menu_label(entry, set()) == "Notion | 3"
+    assert (
+        minimizer.menu_label(entry, {"Notion"})
+        == "Notion | 3 - Wiki | Startseite | Notion"
+    )
