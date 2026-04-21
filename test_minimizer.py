@@ -46,13 +46,17 @@ def read_state(path: Path) -> dict[str, list[str]]:
     return raw
 
 
-def read_history(path: Path) -> list[dict[str, list[str]]]:
+def read_history(path: Path) -> list[dict[str, object]]:
     if not path.exists():
         return []
     raw = json.loads(path.read_text())
     if not isinstance(raw, dict):
         return []
     return raw.get("history", [])
+
+
+def history_workspace_ids(path: Path) -> list[str | None]:
+    return [entry.get("workspace_id") for entry in read_history(path)]
 
 
 def client(address, workspace_id=1, window_class="app", title="Window", pid=1234):
@@ -102,6 +106,7 @@ def test_stash_deduplicates_existing_window(state_file, monkeypatch):
 def test_undo_restores_last_stash(state_file, monkeypatch):
     hyprctl = HyprctlMock(
         active_windows=[{"address": "0xaaa", "workspace": {"id": 1}}],
+        active_workspaces=[{"id": 1}],
         clients=[[client("0xaaa")]],
     )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
@@ -119,6 +124,7 @@ def test_undo_restores_last_stash(state_file, monkeypatch):
             "movetoworkspacesilent",
             "special:minimized,address:0xaaa",
         ],
+        ["hyprctl", "-j", "activeworkspace"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
@@ -167,7 +173,7 @@ def test_undo_re_minimizes_last_pop(state_file, monkeypatch):
     state_file.parent.mkdir(parents=True)
     state_file.write_text(json.dumps({"1": ["0xaaa"]}))
     hyprctl = HyprctlMock(
-        active_workspaces=[{"id": 1}],
+        active_workspaces=[{"id": 1}, {"id": 1}],
         clients=[[client("0xaaa")], [client("0xaaa")]],
     )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
@@ -182,6 +188,7 @@ def test_undo_re_minimizes_last_pop(state_file, monkeypatch):
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+        ["hyprctl", "-j", "activeworkspace"],
         ["hyprctl", "-j", "clients"],
         [
             "hyprctl",
@@ -304,6 +311,13 @@ def test_undo_is_stackable_and_capped_to_five_steps(state_file, monkeypatch):
             {"address": "0x005", "workspace": {"id": 1}},
             {"address": "0x006", "workspace": {"id": 1}},
         ],
+        active_workspaces=[
+            {"id": 1},
+            {"id": 1},
+            {"id": 1},
+            {"id": 1},
+            {"id": 1},
+        ],
         clients=[
             [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
             [client("0x001"), client("0x002"), client("0x003"), client("0x004"), client("0x005"), client("0x006")],
@@ -324,6 +338,48 @@ def test_undo_is_stackable_and_capped_to_five_steps(state_file, monkeypatch):
 
     assert read_state(state_file) == {"1": ["0x001"]}
     assert read_history(state_file) == []
+
+
+def test_undo_only_consumes_history_for_current_workspace(state_file, monkeypatch):
+    hyprctl = HyprctlMock(
+        active_windows=[
+            {"address": "0xaaa", "workspace": {"id": 1}},
+            {"address": "0xbbb", "workspace": {"id": 2}},
+        ],
+        active_workspaces=[{"id": 1}, {"id": 2}],
+        clients=[[client("0xaaa"), client("0xbbb", workspace_id=2)]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+    minimizer.stash()
+
+    assert history_workspace_ids(state_file) == ["1", "2"]
+
+    minimizer.undo()
+
+    assert read_state(state_file) == {"2": ["0xbbb"]}
+    assert history_workspace_ids(state_file) == ["2"]
+    assert hyprctl.commands == [
+        ["hyprctl", "-j", "activewindow"],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xaaa",
+        ],
+        ["hyprctl", "-j", "activewindow"],
+        [
+            "hyprctl",
+            "dispatch",
+            "movetoworkspacesilent",
+            "special:minimized,address:0xbbb",
+        ],
+        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "clients"],
+        ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+    ]
 
 
 def test_minimized_entries_include_window_metadata_and_prune_missing(
@@ -411,8 +467,83 @@ def test_menu_label_includes_workspace_number():
         "address": "0xaaa",
     }
 
-    assert minimizer.menu_label(entry, set()) == "Notion | 3"
+    assert minimizer.menu_label(entry, set()) == "Notion  [ws 3]"
     assert (
         minimizer.menu_label(entry, {"Notion"})
-        == "Notion | 3 - Wiki | Startseite | Notion"
+        == "Notion  [ws 3]  Wiki | Startseite | Notion"
     )
+
+
+def test_sort_menu_entries_prioritizes_current_workspace():
+    entries = [
+        {"workspace_id": "2", "stack_index": 1, "address": "0xbbb"},
+        {"workspace_id": "1", "stack_index": 0, "address": "0xaaa"},
+        {"workspace_id": "2", "stack_index": 0, "address": "0xccc"},
+        {"workspace_id": "3", "stack_index": 0, "address": "0xddd"},
+    ]
+
+    sorted_entries = minimizer.sort_menu_entries(entries, "2")
+
+    assert [entry["address"] for entry in sorted_entries] == [
+        "0xccc",
+        "0xbbb",
+        "0xaaa",
+        "0xddd",
+    ]
+
+
+def test_menu_does_not_auto_restore_single_entry_without_confirmation(
+    state_file, monkeypatch
+):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"]}))
+
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[
+            [client("0xaaa", window_class="Alacritty", title="shell", pid=42)]
+        ],
+    )
+    menu_calls = []
+
+    def subprocess_run(args, check=False, text=True, capture_output=True, input=None):
+        if args[:2] == ["hyprctl", "-j"]:
+            return hyprctl(args, check=check, text=text, capture_output=capture_output)
+
+        menu_calls.append({"args": args, "input": input})
+        return Mock(returncode=0, stdout="")
+
+    restore_calls = []
+
+    monkeypatch.setattr(minimizer.subprocess, "run", subprocess_run)
+    monkeypatch.setattr(
+        minimizer.shutil,
+        "which",
+        lambda cmd: "/usr/bin/walker" if cmd == "walker" else None,
+    )
+    monkeypatch.setattr(
+        minimizer, "restore_address", lambda address: restore_calls.append(address) or True
+    )
+
+    assert minimizer.menu_command() == 0
+    assert restore_calls == []
+    assert menu_calls == [
+        {
+            "args": [
+                "/usr/bin/walker",
+                "--dmenu",
+                "--theme",
+                "omarchy-default",
+                "--placeholder",
+                "Minimized windows",
+                "--width",
+                "520",
+                "--maxheight",
+                "220",
+                "--minheight",
+                "120",
+                "--nohints",
+            ],
+            "input": "Alacritty  [ws 1]\n",
+        }
+    ]

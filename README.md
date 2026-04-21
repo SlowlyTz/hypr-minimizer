@@ -2,10 +2,11 @@
 
 A small Python minimizer for Hyprland.
 
-It stores minimized windows in a per-workspace LIFO stack. When you stash a
-window, it is moved to `special:minimized` and its address is saved under the
-active workspace ID. When you pop, the most recently stashed live window for the
-current workspace is restored first.
+It stores minimized windows in a per-workspace LIFO stack. Every command only
+affects the active workspace. When you stash a window, it is moved to
+`special:minimized` and its address is saved under the active workspace ID.
+When you pop, the most recently stashed live window for the current workspace is
+restored first.
 
 Closed windows are pruned from the state when listing or restoring windows.
 
@@ -53,9 +54,9 @@ Example:
 ```text
 bindd = SUPER, RETURN, Minimize other windows, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py stash_others
 bindd = SUPER, M, Minimize active window, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py stash
-bindd = SUPER, I, Restore minimized window, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop
-bindd = SUPER, U, Undo last minimize/restore step, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py undo
-bindd = SUPER SHIFT, I, Restore all minimized windows, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop_all
+bindd = SUPER, I, Restore last minimized window on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop
+bindd = SUPER, U, Undo last minimize/restore step on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py undo
+bindd = SUPER SHIFT, I, Restore all minimized windows on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop_all
 bindd = SUPER SHIFT, M, Pick minimized window, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py menu
 ```
 

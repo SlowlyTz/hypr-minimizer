@@ -13,6 +13,7 @@ MINIMIZED_WORKSPACE = "special:minimized"
 LEGACY_STATE_FILE = Path("/tmp/hypr_minimizer_state.json")
 BRAVE_APP_CLASS_RE = re.compile(r"^brave-([a-z]+)-Default$")
 MAX_UNDO_HISTORY = 5
+HistoryEntry = dict[str, object]
 
 
 def default_state_file() -> Path:
@@ -37,6 +38,14 @@ def run_hyprctl(*args: str) -> subprocess.CompletedProcess:
         text=True,
         capture_output=True,
     )
+
+
+def notify(summary: str, body: str) -> None:
+    notify_send = shutil.which("notify-send")
+    if not notify_send:
+        return
+
+    subprocess.run([notify_send, summary, body], check=False)
 
 
 def read_json(path: Path) -> object:
@@ -66,13 +75,34 @@ def normalize_state(raw_state: object) -> dict[str, list[str]]:
     return state
 
 
-def normalize_history(raw_history: object) -> list[dict[str, list[str]]]:
+def normalize_history_entry(raw_entry: object) -> HistoryEntry | None:
+    if not isinstance(raw_entry, dict):
+        return None
+
+    if "stacks" in raw_entry:
+        workspace_id = raw_entry.get("workspace_id")
+        if workspace_id is not None:
+            workspace_id = str(workspace_id)
+        return {
+            "workspace_id": workspace_id,
+            "stacks": normalize_state(raw_entry.get("stacks")),
+        }
+
+    return {
+        "workspace_id": None,
+        "stacks": normalize_state(raw_entry),
+    }
+
+
+def normalize_history(raw_history: object) -> list[HistoryEntry]:
     if not isinstance(raw_history, list):
         return []
 
-    history: list[dict[str, list[str]]] = []
+    history: list[HistoryEntry] = []
     for snapshot in raw_history:
-        history.append(normalize_state(snapshot))
+        entry = normalize_history_entry(snapshot)
+        if entry is not None:
+            history.append(entry)
     return history[-MAX_UNDO_HISTORY:]
 
 
@@ -110,7 +140,7 @@ def load_state(path: Path | None = None) -> dict[str, list[str]]:
     return storage["stacks"]  # type: ignore[return-value]
 
 
-def load_history(path: Path | None = None) -> list[dict[str, list[str]]]:
+def load_history(path: Path | None = None) -> list[HistoryEntry]:
     storage = load_storage(path)
     return storage["history"]  # type: ignore[return-value]
 
@@ -125,7 +155,7 @@ def save_storage(storage: dict[str, object], path: Path | None = None) -> None:
 def save_state(
     state: dict[str, list[str]],
     path: Path | None = None,
-    history: list[dict[str, list[str]]] | None = None,
+    history: list[HistoryEntry] | None = None,
 ) -> None:
     if history is None:
         history = load_history(path)
@@ -134,14 +164,33 @@ def save_state(
 
 
 def push_undo_snapshot(
-    history: list[dict[str, list[str]]], state: dict[str, list[str]]
-) -> list[dict[str, list[str]]]:
-    snapshot = normalize_state(state)
+    history: list[HistoryEntry], state: dict[str, list[str]], workspace_id: str
+) -> list[HistoryEntry]:
+    snapshot: HistoryEntry = {
+        "workspace_id": workspace_id,
+        "stacks": normalize_state(state),
+    }
     if history and history[-1] == snapshot:
         return history
 
     updated_history = [*history, snapshot]
     return updated_history[-MAX_UNDO_HISTORY:]
+
+
+def workspace_state(
+    state: dict[str, list[str]], workspace_id: str
+) -> list[str]:
+    return list(state.get(workspace_id, []))
+
+
+def set_workspace_state(
+    state: dict[str, list[str]], workspace_id: str, stack: list[str]
+) -> None:
+    if stack:
+        state[workspace_id] = stack
+        return
+
+    state.pop(workspace_id, None)
 
 
 def append_to_stack(
@@ -170,6 +219,15 @@ def remove_address(state: dict[str, list[str]], address: str) -> str | None:
         if not state[workspace_id]:
             state.pop(workspace_id, None)
         return workspace_id
+    return None
+
+
+def workspace_for_address(
+    state: dict[str, list[str]], address: str
+) -> str | None:
+    for workspace_id, stack in state.items():
+        if address in stack:
+            return workspace_id
     return None
 
 
@@ -358,7 +416,7 @@ def stash() -> None:
         return
 
     state = load_state()
-    history = push_undo_snapshot(load_history(), state)
+    history = push_undo_snapshot(load_history(), state, workspace_id)
 
     run_hyprctl(
         "dispatch",
@@ -389,7 +447,7 @@ def stash_others() -> None:
         return
 
     state = load_state()
-    history = push_undo_snapshot(load_history(), state)
+    history = push_undo_snapshot(load_history(), state, workspace_id)
 
     moved_addresses: list[str] = []
     for address in addresses:
@@ -418,10 +476,11 @@ def restore_address(address: str, workspace_id: str | None = None) -> bool:
             save_state(pruned_state, history=history)
         return False
 
-    history = push_undo_snapshot(history, pruned_state)
-    target_workspace = workspace_id or remove_address(pruned_state, address)
+    target_workspace = workspace_id or workspace_for_address(pruned_state, address)
     if not target_workspace:
         return False
+    history = push_undo_snapshot(history, pruned_state, target_workspace)
+    remove_address(pruned_state, address)
 
     run_hyprctl("dispatch", "movetoworkspace", f"{target_workspace},address:{address}")
     run_hyprctl("dispatch", "focuswindow", f"address:{address}")
@@ -436,7 +495,7 @@ def pop() -> None:
     history = storage["history"]  # type: ignore[assignment]
     clients = clients_by_address()
     state = prune_missing(state, clients)
-    history = push_undo_snapshot(history, state)
+    history = push_undo_snapshot(history, state, workspace_id)
     workspace_stack = state.get(workspace_id, [])
 
     while workspace_stack:
@@ -464,7 +523,7 @@ def pop_all() -> None:
     history = storage["history"]  # type: ignore[assignment]
     clients = clients_by_address()
     state = prune_missing(state, clients)
-    history = push_undo_snapshot(history, state)
+    history = push_undo_snapshot(history, state, workspace_id)
     workspace_stack = state.get(workspace_id, [])
     if not workspace_stack:
         if workspace_id in state:
@@ -480,6 +539,7 @@ def pop_all() -> None:
 
 
 def undo() -> None:
+    workspace_id = get_active_workspace_id()
     storage = load_storage()
     state = storage["stacks"]  # type: ignore[assignment]
     history = storage["history"]  # type: ignore[assignment]
@@ -488,24 +548,33 @@ def undo() -> None:
 
     clients = clients_by_address()
     current_state = prune_missing(state, clients)
-    target_state = prune_missing(history.pop(), clients)
+    history_index = next(
+        (
+            index
+            for index in range(len(history) - 1, -1, -1)
+            if history[index].get("workspace_id") == workspace_id
+        ),
+        None,
+    )
+    if history_index is None:
+        save_state(current_state, history=history)
+        return
 
-    current_workspaces = {
-        address: workspace_id
-        for workspace_id, stack in current_state.items()
-        for address in stack
-    }
-    target_workspaces = {
-        address: workspace_id
-        for workspace_id, stack in target_state.items()
-        for address in stack
-    }
+    entry = history.pop(history_index)
+    target_workspace_stack = workspace_state(
+        prune_missing(entry.get("stacks", {}), clients), workspace_id
+    )
+    current_workspace_stack = workspace_state(current_state, workspace_id)
 
     restored_addresses = [
-        address for address in current_workspaces if address not in target_workspaces
+        address
+        for address in current_workspace_stack
+        if address not in target_workspace_stack
     ]
     minimized_addresses = [
-        address for address in target_workspaces if address not in current_workspaces
+        address
+        for address in target_workspace_stack
+        if address not in current_workspace_stack
     ]
 
     for address in minimized_addresses:
@@ -516,12 +585,13 @@ def undo() -> None:
         )
 
     for address in restored_addresses:
-        workspace_id = current_workspaces[address]
         run_hyprctl("dispatch", "movetoworkspace", f"{workspace_id},address:{address}")
 
     if restored_addresses:
         run_hyprctl("dispatch", "focuswindow", f"address:{restored_addresses[-1]}")
 
+    set_workspace_state(current_state, workspace_id, target_workspace_stack)
+    target_state = current_state
     save_state(target_state, history=history)
 
 
@@ -547,26 +617,48 @@ def print_list(as_json: bool) -> None:
 
 def menu_label(entry: dict[str, object], duplicate_app_names: set[str]) -> str:
     app_name = str(entry["app_name"])
-    workspace_label = f"{app_name} | {entry['workspace_id']}"
+    workspace_label = f"{app_name}  [ws {entry['workspace_id']}]"
     if app_name not in duplicate_app_names:
         return workspace_label
 
     detail = window_title_detail(app_name, str(entry.get("title") or ""))
     if detail:
-        return f"{workspace_label} - {detail}"
+        return f"{workspace_label}  {detail}"
 
     return f"{workspace_label} ({entry['address']})"
+
+
+def sort_menu_entries(
+    entries: list[dict[str, object]], current_workspace_id: str
+) -> list[dict[str, object]]:
+    return sorted(
+        entries,
+        key=lambda entry: (
+            str(entry["workspace_id"]) != current_workspace_id,
+            str(entry["workspace_id"]),
+            int(entry["stack_index"]),
+        ),
+    )
 
 
 def menu_command() -> int:
     entries = minimized_entries(prune=True)
     if not entries:
+        notify("Minimized windows", "No minimized windows to restore")
         return 0
 
-    menu = shutil.which("wofi") or shutil.which("rofi") or shutil.which("walker")
+    current_workspace_id = get_active_workspace_id()
+    entries = sort_menu_entries(entries, current_workspace_id)
+
+    menu = (
+        shutil.which("omarchy-launch-walker")
+        or shutil.which("walker")
+        or shutil.which("wofi")
+        or shutil.which("rofi")
+    )
     if not menu:
         print(
-            "hypr-minimizer: install wofi, rofi, or walker to use the menu",
+            "hypr-minimizer: install walker, wofi, or rofi to use the menu",
             file=sys.stderr,
         )
         return 1
@@ -579,10 +671,7 @@ def menu_command() -> int:
         app_name for app_name, count in app_name_counts.items() if count > 1
     }
 
-    lines = [
-        f"{index}. {menu_label(entry, duplicate_app_names)}"
-        for index, entry in enumerate(entries, start=1)
-    ]
+    lines = [menu_label(entry, duplicate_app_names) for entry in entries]
     selections = [
         (line, str(entry["address"]))
         for line, entry in zip(lines, entries, strict=True)
@@ -590,12 +679,26 @@ def menu_command() -> int:
     menu_input = "\n".join(lines) + "\n"
 
     menu_name = Path(menu).name
-    if menu_name == "wofi":
+    if menu_name in {"omarchy-launch-walker", "walker"}:
+        command = [
+            menu,
+            "--dmenu",
+            "--theme",
+            "omarchy-default",
+            "--placeholder",
+            "Minimized windows",
+            "--width",
+            "520",
+            "--maxheight",
+            "220",
+            "--minheight",
+            "120",
+            "--nohints",
+        ]
+    elif menu_name == "wofi":
         command = [menu, "--dmenu", "--prompt", "Minimized windows"]
     elif menu_name == "rofi":
         command = [menu, "-dmenu", "-p", "Minimized windows"]
-    else:
-        command = [menu, "--dmenu", "--placeholder", "Minimized windows"]
 
     result = subprocess.run(command, input=menu_input, text=True, capture_output=True)
     if result.returncode != 0:
