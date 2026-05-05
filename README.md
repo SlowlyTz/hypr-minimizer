@@ -1,67 +1,124 @@
-# Hypr Minimizer
+# hypr-minimizer
 
-A small Python minimizer for Hyprland.
+A workspace-aware LIFO window minimizer for [Hyprland](https://hyprland.org/).
 
-It stores minimized windows in a per-workspace LIFO stack. Every command only
-affects the active workspace. When you stash a window, it is moved to
-`special:minimized` and its address is saved under the active workspace ID.
-When you pop, the most recently stashed live window for the current workspace is
-restored first.
+Stashes windows into a hidden scratchpad (`special:minimized`) and restores them in last-in-first-out order, scoped per workspace. Includes undo support, a dmenu-style picker, and automatic pruning of closed windows.
 
-Closed windows are pruned from the state when listing or restoring windows.
+## Features
 
-## Commands
+- **Per-workspace LIFO stacks** — minimized windows on workspace 2 are never touched when you're on workspace 3
+- **Undo** (up to 5 steps) — revert stash, pop, or restore operations per workspace
+- **Stash others** — minimize all windows on the current workspace except the active one
+- **Menu picker** — browse and restore minimized windows via `walker`, `wofi`, or `rofi`
+- **Brave PWA name resolution** — shows human-readable names (e.g. "Notion") instead of `brave-<appid>-Default`
+- **Automatic pruning** — closed windows are detected and removed from state automatically
+- **Zero Python dependencies** — uses only the standard library
+
+## Requirements
+
+- **Hyprland** (with `hyprctl` available in `$PATH`)
+- **Python 3.10+**
+- Optional, for the `menu` command:
+  - [walker](https://github.com/abenz1267/walker) (preferred)
+  - [wofi](https://hg.sr.ht/~scoopta/wofi)
+  - [rofi](https://github.com/davatorium/rofi)
+- Optional, for notifications: `notify-send` (libnotify)
+
+## Installation
+
+### From source
 
 ```bash
-python3 minimizer.py stash
-python3 minimizer.py stash_others
-python3 minimizer.py pop
-python3 minimizer.py pop_all
-python3 minimizer.py list
-python3 minimizer.py list --json
-python3 minimizer.py restore 0xabc
-python3 minimizer.py clear-missing
-python3 minimizer.py menu
+git clone https://github.com/GhostTz/hypr-workspace-manager.git
+cd hypr-workspace-manager
+pip install .
 ```
 
-`menu` opens a dmenu-style picker with `wofi` first, then `rofi`, then `walker`
-as a fallback. Selecting an entry restores that window to its original
-workspace. Brave web apps are resolved through their `.desktop` files, so the
-menu shows names like `Notion` or `Discord` instead of `brave-...`.
+This installs the `hypr-minimizer` command system-wide.
 
-## State
+### Manual (no install)
 
-Runtime state is stored at:
+```bash
+git clone https://github.com/GhostTz/hypr-workspace-manager.git
+# Run directly with Python:
+python3 ~/path/to/hypr-workspace-manager/minimizer.py stash
+```
 
-```text
+### Arch Linux (AUR)
+
+Not yet available. Contributions welcome.
+
+## Usage
+
+```bash
+# Install via pip:
+hypr-minimizer stash
+
+# Or run directly:
+python3 minimizer.py stash
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `stash` | Minimize (hide) the currently focused window |
+| `stash_others` | Minimize all windows on the current workspace except the active one |
+| `pop` | Restore the most recently minimized window (LIFO) |
+| `pop_all` | Restore all minimized windows on the current workspace |
+| `undo` | Undo the last stash/pop/restore operation on this workspace |
+| `restore <address>` | Restore a specific window by its address (e.g. `0xabc123`) |
+| `list` | Print all minimized windows |
+| `list --json` | Print all minimized windows as JSON |
+| `clear-missing` | Remove references to windows that no longer exist |
+| `menu` | Open a dmenu-style picker to select and restore a window |
+
+## Hyprland Keybindings
+
+Add these to your `~/.config/hypr/hyprland.conf`:
+
+```ini
+bindd = SUPER, RETURN, Minimize other windows, exec, hypr-minimizer stash_others
+bindd = SUPER, M, Minimize active window, exec, hypr-minimizer stash
+bindd = SUPER, I, Restore last minimized window, exec, hypr-minimizer pop
+bindd = SUPER, U, Undo last minimize/restore, exec, hypr-minimizer undo
+bindd = SUPER SHIFT, I, Restore all minimized windows, exec, hypr-minimizer pop_all
+bindd = SUPER SHIFT, M, Pick minimized window, exec, hypr-minimizer menu
+```
+
+If you installed manually without pip, replace `hypr-minimizer` with the full path to `minimizer.py`.
+
+## State File
+
+Runtime state is stored in JSON format:
+
+**Primary location:**
+```
 $XDG_RUNTIME_DIR/hypr-minimizer/state.json
 ```
+(typically `/run/user/1000/hypr-minimizer/state.json`)
 
-If `XDG_RUNTIME_DIR` is not set, it falls back to:
+**Fallback chain** (if `XDG_RUNTIME_DIR` is unset):
+1. `$XDG_STATE_HOME/hypr-minimizer/state.json`
+2. `~/.local/state/hypr-minimizer/state.json`
 
-```text
-$XDG_STATE_HOME/hypr-minimizer/state.json
-~/.local/state/hypr-minimizer/state.json
-```
+Legacy state at `/tmp/hypr_minimizer_state.json` is read as a one-time migration fallback.
 
-The old `/tmp/hypr_minimizer_state.json` path is still read as a legacy fallback
-when the new state file does not exist.
-
-## Hyprland Binds
-
-Example:
-
-```text
-bindd = SUPER, RETURN, Minimize other windows, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py stash_others
-bindd = SUPER, M, Minimize active window, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py stash
-bindd = SUPER, I, Restore last minimized window on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop
-bindd = SUPER, U, Undo last minimize/restore step on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py undo
-bindd = SUPER SHIFT, I, Restore all minimized windows on current workspace, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py pop_all
-bindd = SUPER SHIFT, M, Pick minimized window, exec, python3 ~/Documents/dev/hypr-minimizer/minimizer.py menu
-```
-
-## Test
+## Development
 
 ```bash
-.venv/bin/python -m pytest test_minimizer.py
+git clone https://github.com/GhostTz/hypr-workspace-manager.git
+cd hypr-workspace-manager
+
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Run tests
+python -m pytest test_minimizer.py -v
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.

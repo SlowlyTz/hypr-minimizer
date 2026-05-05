@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["minimizer"]
+
+[project]
+name = "hypr-minimizer"
+version = "0.1.0"
+description = "Workspace-aware LIFO window minimizer for Hyprland"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "GhostTz" },
+]
+keywords = ["hyprland", "minimizer", "window-manager", "workspace", "tiling"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Desktop Environment :: Window Managers",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+hypr-minimizer = "minimizer:main"
+
+[project.urls]
+Homepage = "https://github.com/GhostTz/hypr-workspace-manager"
+Repository = "https://github.com/GhostTz/hypr-workspace-manager"
+Issues = "https://github.com/GhostTz/hypr-workspace-manager/issues"
