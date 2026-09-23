@@ -65,10 +65,22 @@ def history_workspace_ids(path: Path) -> list[str | None]:
     return [entry.get("workspace_id") for entry in read_history(path)]
 
 
-def client(address, workspace_id=1, window_class="app", title="Window", pid=1234):
+def client(
+    address,
+    workspace_id=1,
+    window_class="app",
+    title="Window",
+    pid=1234,
+    minimized=True,
+):
+    workspace = (
+        {"id": -98, "name": "special:minimized"}
+        if minimized
+        else {"id": workspace_id, "name": str(workspace_id)}
+    )
     return {
         "address": address,
-        "workspace": {"id": workspace_id},
+        "workspace": workspace,
         "class": window_class,
         "title": title,
         "pid": pid,
@@ -212,10 +224,10 @@ def test_stash_others_minimizes_current_workspace_except_active(
         active_windows=[{"address": "0xbbb", "workspace": {"id": 1}}],
         clients=[
             [
-                client("0xaaa"),
-                client("0xbbb"),
-                client("0xccc", workspace_id=2),
-                client("0xddd"),
+                client("0xaaa", minimized=False),
+                client("0xbbb", minimized=False),
+                client("0xccc", workspace_id=2, minimized=False),
+                client("0xddd", minimized=False),
             ]
         ],
     )
@@ -571,3 +583,35 @@ def test_lua_dispatch_moves_and_focuses_window(monkeypatch):
         ],
         ["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:0xaaa' })"],
     ]
+
+
+def test_pop_skips_windows_restored_outside_the_minimizer(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa", "0xbbb"]}))
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 1}],
+        clients=[[client("0xaaa"), client("0xbbb", workspace_id=4, minimized=False)]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.pop()
+
+    assert read_state(state_file) == {}
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+    ]
+
+
+def test_restore_address_rejects_window_no_longer_minimized(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"], "2": ["0xccc"]}))
+    hyprctl = HyprctlMock(
+        clients=[[client("0xaaa"), client("0xccc", workspace_id=2, minimized=False)]]
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert not minimizer.restore_address("0xccc")
+
+    assert read_state(state_file) == {"1": ["0xaaa"]}
+    assert hyprctl.commands == [["hyprctl", "-j", "clients"]]

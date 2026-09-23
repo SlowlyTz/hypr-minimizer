@@ -359,6 +359,21 @@ def prune_missing(
     return pruned
 
 
+def is_minimized(client: dict) -> bool:
+    workspace = client.get("workspace")
+    return isinstance(workspace, dict) and workspace.get("name") == MINIMIZED_WORKSPACE
+
+
+def prune_stale(
+    state: dict[str, list[str]], clients: dict[str, dict]
+) -> dict[str, list[str]]:
+    """Drop windows that were closed or left the scratchpad without us."""
+    minimized_clients = {
+        address: client for address, client in clients.items() if is_minimized(client)
+    }
+    return prune_missing(state, minimized_clients)
+
+
 def client_label(client: dict) -> str:
     app_name = client_app_name(client)
     title = str(client.get("title") or "")
@@ -418,7 +433,7 @@ def minimized_entries(prune: bool = False) -> list[dict[str, object]]:
     clients = clients_by_address()
 
     if prune:
-        pruned_state = prune_missing(state, clients)
+        pruned_state = prune_stale(state, clients)
         if pruned_state != state:
             save_state(pruned_state)
         state = pruned_state
@@ -496,16 +511,15 @@ def restore_address(address: str, workspace_id: str | None = None) -> bool:
     state = storage["stacks"]  # type: ignore[assignment]
     history = storage["history"]  # type: ignore[assignment]
     clients = clients_by_address()
-    pruned_state = prune_missing(state, clients)
+    pruned_state = prune_stale(state, clients)
 
-    if address not in clients:
+    origin_workspace = workspace_for_address(pruned_state, address)
+    if not origin_workspace:
         if pruned_state != state:
             save_state(pruned_state, history=history)
         return False
 
-    target_workspace = workspace_id or workspace_for_address(pruned_state, address)
-    if not target_workspace:
-        return False
+    target_workspace = workspace_id or origin_workspace
     history = push_undo_snapshot(history, pruned_state, target_workspace)
     remove_address(pruned_state, address)
 
@@ -521,7 +535,7 @@ def pop() -> None:
     state = storage["stacks"]  # type: ignore[assignment]
     history = storage["history"]  # type: ignore[assignment]
     clients = clients_by_address()
-    state = prune_missing(state, clients)
+    state = prune_stale(state, clients)
     history = push_undo_snapshot(history, state, workspace_id)
     workspace_stack = state.get(workspace_id, [])
 
@@ -549,7 +563,7 @@ def pop_all() -> None:
     state = storage["stacks"]  # type: ignore[assignment]
     history = storage["history"]  # type: ignore[assignment]
     clients = clients_by_address()
-    state = prune_missing(state, clients)
+    state = prune_stale(state, clients)
     history = push_undo_snapshot(history, state, workspace_id)
     workspace_stack = state.get(workspace_id, [])
     if not workspace_stack:
@@ -574,7 +588,7 @@ def undo() -> None:
         return
 
     clients = clients_by_address()
-    current_state = prune_missing(state, clients)
+    current_state = prune_stale(state, clients)
     history_index = next(
         (
             index
@@ -620,7 +634,7 @@ def undo() -> None:
 
 def clear_missing() -> None:
     state = load_state()
-    pruned_state = prune_missing(state, clients_by_address())
+    pruned_state = prune_stale(state, clients_by_address())
     if pruned_state != state:
         save_state(pruned_state)
 
