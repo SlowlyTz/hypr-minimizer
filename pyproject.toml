@@ -37,6 +37,6 @@ dev = ["pytest"]
 hypr-minimizer = "minimizer:main"
 
 [project.urls]
-Homepage = "https://github.com/GhostTz/hypr-workspace-manager"
-Repository = "https://github.com/GhostTz/hypr-workspace-manager"
-Issues = "https://github.com/GhostTz/hypr-workspace-manager/issues"
+Homepage = "https://github.com/SlowlyTz/hypr-minimizer"
+Repository = "https://github.com/SlowlyTz/hypr-minimizer"
+Issues = "https://github.com/SlowlyTz/hypr-minimizer/issues"
