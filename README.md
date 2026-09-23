@@ -2,61 +2,61 @@
 
 A workspace-aware LIFO window minimizer for [Hyprland](https://hyprland.org/).
 
-Stashes windows into a hidden scratchpad (`special:minimized`) and restores them in last-in-first-out order, scoped per workspace. Includes undo support, a dmenu-style picker, and automatic pruning of closed windows.
+Stashes windows into a hidden scratchpad (`special:minimized`) and restores them in last-in-first-out order, scoped per workspace. Comes with undo, a picker with app icons for [Omarchy](https://omarchy.org/) (with a dmenu fallback elsewhere), and automatic cleanup of stale entries.
 
 ## Features
 
 - **Per-workspace LIFO stacks** — minimized windows on workspace 2 are never touched when you're on workspace 3
 - **Undo** (up to 5 steps) — revert stash, pop, or restore operations per workspace
 - **Stash others** — minimize all windows on the current workspace except the active one
-- **Menu picker** — browse and restore minimized windows via `walker`, `wofi`, or `rofi`
-- **Brave PWA name resolution** — shows human-readable names (e.g. "Notion") instead of `brave-<appid>-Default`
-- **Automatic pruning** — closed windows are detected and removed from state automatically
+- **Picker** — browse minimized windows with app icons; `Enter` restores a window to its own workspace, `Shift+Enter` brings it to the one you're on
+- **Readable names** — resolves app names and icons from desktop files, including Brave/Chromium web apps (e.g. "Notion" instead of `brave-<appid>-Default`)
+- **Self-healing state** — windows that were closed, or pulled out of the scratchpad by other means, are dropped automatically
 - **Zero Python dependencies** — uses only the standard library
 
 ## Requirements
 
-- **Hyprland** (with `hyprctl` available in `$PATH`)
+- **Hyprland** with `hyprctl` in `$PATH` (both the 0.56+ Lua dispatchers and the older string dispatchers work)
 - **Python 3.10+**
-- Optional, for the `menu` command:
-  - [walker](https://github.com/abenz1267/walker) (preferred)
-  - [wofi](https://hg.sr.ht/~scoopta/wofi)
-  - [rofi](https://github.com/davatorium/rofi)
-- Optional, for notifications: `notify-send` (libnotify)
+- For the `menu` command, one of:
+  - [Omarchy](https://omarchy.org/) 4 with the bundled picker plugin (recommended — app icons and `Shift+Enter`)
+  - `omarchy-menu-select`, [walker](https://github.com/abenz1267/walker), [wofi](https://hg.sr.ht/~scoopta/wofi) or [rofi](https://github.com/davatorium/rofi) as a plain-text fallback
+- Optional: `notify-send` (libnotify) for notifications
 
 ## Installation
 
 ### From source
 
 ```bash
-git clone https://github.com/GhostTz/hypr-workspace-manager.git
-cd hypr-workspace-manager
+git clone https://github.com/SlowlyTz/hypr-minimizer.git
+cd hypr-minimizer
 pip install .
 ```
 
-This installs the `hypr-minimizer` command system-wide.
+This installs the `hypr-minimizer` command.
 
-### Manual (no install)
+### Without installing
 
-```bash
-git clone https://github.com/GhostTz/hypr-workspace-manager.git
-# Run directly with Python:
-python3 ~/path/to/hypr-workspace-manager/minimizer.py stash
+Put a small wrapper on your `$PATH`, e.g. `~/.local/bin/hypr-minimizer`:
+
+```sh
+#!/bin/sh
+exec python3 "$HOME/path/to/hypr-minimizer/minimizer.py" "$@"
 ```
 
-### Arch Linux (AUR)
+### Omarchy picker plugin
 
-Not yet available. Contributions welcome.
+The picker lives in [`omarchy-plugin/`](omarchy-plugin/) as an `omarchy-shell` overlay plugin. Link it into your plugin directory, then enable it:
+
+```bash
+ln -s "$PWD/omarchy-plugin" ~/.config/omarchy/plugins/hypr-minimizer.picker
+omarchy-shell shell rescanPlugins
+omarchy plugin enable hypr-minimizer.picker
+```
+
+`hypr-minimizer menu` uses the plugin whenever it is enabled and falls back to the plain menus otherwise. After editing the plugin's QML, run `omarchy-restart-shell`: the shell caches components it has already loaded.
 
 ## Usage
-
-```bash
-# Install via pip:
-hypr-minimizer stash
-
-# Or run directly:
-python3 minimizer.py stash
-```
 
 ### Commands
 
@@ -64,60 +64,111 @@ python3 minimizer.py stash
 |---|---|
 | `stash` | Minimize (hide) the currently focused window |
 | `stash_others` | Minimize all windows on the current workspace except the active one |
-| `pop` | Restore the most recently minimized window (LIFO) |
-| `pop_all` | Restore all minimized windows on the current workspace |
-| `undo` | Undo the last stash/pop/restore operation on this workspace |
-| `restore <address>` | Restore a specific window by its address (e.g. `0xabc123`) |
+| `pop` | Restore the most recently minimized window of this workspace (LIFO) |
+| `pop_all` | Restore all minimized windows of this workspace |
+| `undo` | Undo the last stash/pop/restore on this workspace |
+| `menu` | Pick a minimized window to restore |
+| `restore <address>` | Restore a window by address (e.g. `0xabc123`) to its original workspace |
+| `restore <address> --here` | Restore a window by address onto the current workspace |
 | `list` | Print all minimized windows |
 | `list --json` | Print all minimized windows as JSON |
-| `clear-missing` | Remove references to windows that no longer exist |
-| `menu` | Open a dmenu-style picker to select and restore a window |
+| `clear-missing` | Drop entries for windows that are gone or no longer minimized |
 
-## Hyprland Keybindings
+### Picker keys
 
-Add these to your `~/.config/hypr/hyprland.conf`:
+| Key | Action |
+|---|---|
+| `Enter` / click | Restore the window to the workspace it was minimized from |
+| `Shift+Enter` / `Shift`+click / middle click | Bring the window to the current workspace |
+| `↑` `↓` / `Tab` | Move the selection |
+| Typing | Filter by app name or window title |
+| `Esc` | Clear the filter, then close |
 
-```ini
-bindd = SUPER, RETURN, Minimize other windows, exec, hypr-minimizer stash_others
-bindd = SUPER, M, Minimize active window, exec, hypr-minimizer stash
-bindd = SUPER, I, Restore last minimized window, exec, hypr-minimizer pop
-bindd = SUPER, U, Undo last minimize/restore, exec, hypr-minimizer undo
-bindd = SUPER SHIFT, I, Restore all minimized windows, exec, hypr-minimizer pop_all
-bindd = SUPER SHIFT, M, Pick minimized window, exec, hypr-minimizer menu
+A window brought to another workspace belongs there afterwards: `undo` on that workspace minimizes it again. The plain-text fallback menus only support `Enter`.
+
+## Keybindings
+
+### Omarchy (`~/.config/hypr/bindings.lua`)
+
+```lua
+o.bind("SUPER + M", "Minimize active window", "hypr-minimizer stash")
+o.bind("SUPER + RETURN", "Minimize other windows", "hypr-minimizer stash_others")
+o.bind("SUPER + I", "Restore last minimized window", "hypr-minimizer pop")
+o.bind("SUPER + SHIFT + I", "Restore all minimized windows", "hypr-minimizer pop_all")
+o.bind("SUPER + U", "Undo last minimize/restore", "hypr-minimizer undo")
+o.bind("SUPER + PERIOD", "Pick minimized window", "hypr-minimizer menu")
 ```
 
-If you installed manually without pip, replace `hypr-minimizer` with the full path to `minimizer.py`.
+Omarchy opens the terminal on `SUPER + RETURN`; release it first with `hl.unbind("SUPER + RETURN")`, or pick another key.
 
-## State File
+### Plain Hyprland (`hyprland.conf`)
 
-Runtime state is stored in JSON format:
+```ini
+bindd = SUPER, M, Minimize active window, exec, hypr-minimizer stash
+bindd = SUPER, RETURN, Minimize other windows, exec, hypr-minimizer stash_others
+bindd = SUPER, I, Restore last minimized window, exec, hypr-minimizer pop
+bindd = SUPER SHIFT, I, Restore all minimized windows, exec, hypr-minimizer pop_all
+bindd = SUPER, U, Undo last minimize/restore, exec, hypr-minimizer undo
+bindd = SUPER, PERIOD, Pick minimized window, exec, hypr-minimizer menu
+```
 
-**Primary location:**
+## Bar counter
+
+Show how many windows are minimized, e.g. `-3`, hidden when there are none.
+
+**omarchy-shell** — a bar widget can read the count straight from Hyprland, without polling. Clone the workspaces widget with `omarchy plugin clone omarchy.workspaces` and add this inside it (the new button goes into the widget's `GridLayout`, whose `columns` needs one more slot while the counter is visible):
+
+```qml
+readonly property int minimizedCount: {
+  var values = Hyprland.workspaces.values
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i].name || "") === "special:minimized") return values[i].toplevels.values.length
+  }
+  return 0
+}
+
+WidgetButton {
+  visible: root.minimizedCount > 0
+  bar: root.bar
+  text: "-" + root.minimizedCount
+  opacity: 0.5
+  horizontalMargin: 4
+  fixedHeight: root.barSize
+  onPressed: function() { if (root.bar) root.bar.run("hypr-minimizer menu") }
+}
+```
+
+**Waybar** — a polling custom module:
+
+```jsonc
+"custom/minimized": {
+  "exec": "n=$(hypr-minimizer list --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'); [ \"$n\" -gt 0 ] && echo \"-$n\" || echo",
+  "interval": 2,
+  "on-click": "hypr-minimizer menu"
+}
+```
+
+## State file
+
+State (stacks and undo history) is stored as JSON at:
+
 ```
 $XDG_RUNTIME_DIR/hypr-minimizer/state.json
 ```
-(typically `/run/user/1000/hypr-minimizer/state.json`)
 
-**Fallback chain** (if `XDG_RUNTIME_DIR` is unset):
-1. `$XDG_STATE_HOME/hypr-minimizer/state.json`
-2. `~/.local/state/hypr-minimizer/state.json`
-
-Legacy state at `/tmp/hypr_minimizer_state.json` is read as a one-time migration fallback.
+(typically `/run/user/1000/hypr-minimizer/state.json`). If `XDG_RUNTIME_DIR` is unset, it falls back to `$XDG_STATE_HOME/hypr-minimizer/state.json`, then `~/.local/state/hypr-minimizer/state.json`. Legacy state at `/tmp/hypr_minimizer_state.json` is read once as a migration fallback.
 
 ## Development
 
 ```bash
-git clone https://github.com/GhostTz/hypr-workspace-manager.git
-cd hypr-workspace-manager
-
-# Create and activate a virtual environment
+git clone https://github.com/SlowlyTz/hypr-minimizer.git
+cd hypr-minimizer
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Run tests
-python -m pytest test_minimizer.py -v
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest test_minimizer.py -v
 ```
+
+The tests mock `hyprctl` and pin the classic string dispatchers; the Lua path has its own test.
 
 ## License
 
