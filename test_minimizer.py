@@ -29,6 +29,12 @@ class HyprctlMock:
         return Mock(stdout="")
 
 
+@pytest.fixture(autouse=True)
+def legacy_dispatch(monkeypatch):
+    # Skip the Lua probe; tests assert the classic string dispatchers.
+    monkeypatch.setattr(minimizer, "_LUA_DISPATCH", False)
+
+
 @pytest.fixture()
 def state_file(tmp_path, monkeypatch):
     path = tmp_path / "hypr-minimizer" / "state.json"
@@ -546,4 +552,22 @@ def test_menu_does_not_auto_restore_single_entry_without_confirmation(
             ],
             "input": "Alacritty  [ws 1]\n",
         }
+    ]
+
+
+def test_lua_dispatch_moves_and_focuses_window(monkeypatch):
+    monkeypatch.setattr(minimizer, "_LUA_DISPATCH", True)
+    hyprctl = HyprctlMock()
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.move_window("0xaaa", "special:minimized", silent=True)
+    minimizer.focus_window("0xaaa")
+
+    assert hyprctl.commands == [
+        [
+            "hyprctl",
+            "dispatch",
+            "hl.dsp.window.move({ workspace = 'special:minimized', follow = false, window = 'address:0xaaa' })",
+        ],
+        ["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:0xaaa' })"],
     ]

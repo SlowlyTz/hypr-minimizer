@@ -40,6 +40,41 @@ def run_hyprctl(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _lua_dispatch_supported() -> bool | None:
+    """Hyprland >= 0.56 expects Lua for `hyprctl dispatch`; older versions take strings."""
+    global _LUA_DISPATCH
+    if _LUA_DISPATCH is None:
+        probe = subprocess.run(
+            ["hyprctl", "dispatch", "hl.dsp.no_op()"],
+            text=True,
+            capture_output=True,
+        )
+        _LUA_DISPATCH = probe.returncode == 0
+    return _LUA_DISPATCH
+
+
+_LUA_DISPATCH: bool | None = None
+
+
+def move_window(address: str, workspace: str, silent: bool = False) -> None:
+    if _lua_dispatch_supported():
+        follow = "false" if silent else "true"
+        run_hyprctl(
+            "dispatch",
+            f"hl.dsp.window.move({{ workspace = '{workspace}', follow = {follow}, window = 'address:{address}' }})",
+        )
+    else:
+        dispatcher = "movetoworkspacesilent" if silent else "movetoworkspace"
+        run_hyprctl("dispatch", dispatcher, f"{workspace},address:{address}")
+
+
+def focus_window(address: str) -> None:
+    if _lua_dispatch_supported():
+        run_hyprctl("dispatch", f"hl.dsp.focus({{ window = 'address:{address}' }})")
+    else:
+        run_hyprctl("dispatch", "focuswindow", f"address:{address}")
+
+
 def notify(summary: str, body: str) -> None:
     notify_send = shutil.which("notify-send")
     if not notify_send:
@@ -418,11 +453,7 @@ def stash() -> None:
     state = load_state()
     history = push_undo_snapshot(load_history(), state, workspace_id)
 
-    run_hyprctl(
-        "dispatch",
-        "movetoworkspacesilent",
-        f"{MINIMIZED_WORKSPACE},address:{address}",
-    )
+    move_window(address, MINIMIZED_WORKSPACE, silent=True)
 
     append_to_stack(state, workspace_id, address)
     save_state(state, history=history)
@@ -451,17 +482,13 @@ def stash_others() -> None:
 
     moved_addresses: list[str] = []
     for address in addresses:
-        run_hyprctl(
-            "dispatch",
-            "movetoworkspacesilent",
-            f"{MINIMIZED_WORKSPACE},address:{address}",
-        )
+        move_window(address, MINIMIZED_WORKSPACE, silent=True)
         moved_addresses.append(address)
 
     extend_stack(state, workspace_id, moved_addresses)
     save_state(state, history=history)
 
-    run_hyprctl("dispatch", "focuswindow", f"address:{active_address}")
+    focus_window(active_address)
 
 
 def restore_address(address: str, workspace_id: str | None = None) -> bool:
@@ -482,8 +509,8 @@ def restore_address(address: str, workspace_id: str | None = None) -> bool:
     history = push_undo_snapshot(history, pruned_state, target_workspace)
     remove_address(pruned_state, address)
 
-    run_hyprctl("dispatch", "movetoworkspace", f"{target_workspace},address:{address}")
-    run_hyprctl("dispatch", "focuswindow", f"address:{address}")
+    move_window(address, str(target_workspace))
+    focus_window(address)
     save_state(pruned_state, history=history)
     return True
 
@@ -506,8 +533,8 @@ def pop() -> None:
         else:
             state.pop(workspace_id, None)
 
-        run_hyprctl("dispatch", "movetoworkspace", f"{workspace_id},address:{address}")
-        run_hyprctl("dispatch", "focuswindow", f"address:{address}")
+        move_window(address, str(workspace_id))
+        focus_window(address)
         save_state(state, history=history)
         return
 
@@ -532,7 +559,7 @@ def pop_all() -> None:
         return
 
     for address in reversed(workspace_stack):
-        run_hyprctl("dispatch", "movetoworkspace", f"{workspace_id},address:{address}")
+        move_window(address, str(workspace_id))
 
     state.pop(workspace_id, None)
     save_state(state, history=history)
@@ -578,17 +605,13 @@ def undo() -> None:
     ]
 
     for address in minimized_addresses:
-        run_hyprctl(
-            "dispatch",
-            "movetoworkspacesilent",
-            f"{MINIMIZED_WORKSPACE},address:{address}",
-        )
+        move_window(address, MINIMIZED_WORKSPACE, silent=True)
 
     for address in restored_addresses:
-        run_hyprctl("dispatch", "movetoworkspace", f"{workspace_id},address:{address}")
+        move_window(address, str(workspace_id))
 
     if restored_addresses:
-        run_hyprctl("dispatch", "focuswindow", f"address:{restored_addresses[-1]}")
+        focus_window(restored_addresses[-1])
 
     set_workspace_state(current_state, workspace_id, target_workspace_stack)
     target_state = current_state
@@ -651,14 +674,15 @@ def menu_command() -> int:
     entries = sort_menu_entries(entries, current_workspace_id)
 
     menu = (
-        shutil.which("omarchy-launch-walker")
+        shutil.which("omarchy-menu-select")
+        or shutil.which("omarchy-launch-walker")
         or shutil.which("walker")
         or shutil.which("wofi")
         or shutil.which("rofi")
     )
     if not menu:
         print(
-            "hypr-minimizer: install walker, wofi, or rofi to use the menu",
+            "hypr-minimizer: install omarchy, walker, wofi, or rofi to use the menu",
             file=sys.stderr,
         )
         return 1
@@ -679,7 +703,9 @@ def menu_command() -> int:
     menu_input = "\n".join(lines) + "\n"
 
     menu_name = Path(menu).name
-    if menu_name in {"omarchy-launch-walker", "walker"}:
+    if menu_name == "omarchy-menu-select":
+        command = [menu, "Minimized windows", "--", "--width", "520"]
+    elif menu_name in {"omarchy-launch-walker", "walker"}:
         command = [
             menu,
             "--dmenu",
