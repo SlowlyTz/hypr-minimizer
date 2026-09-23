@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -16,6 +18,8 @@ BRAVE_APP_CLASS_RE = re.compile(r"^brave-([a-z]+)-Default$")
 URL_APP_CLASS_RE = re.compile(r"^chrome-(.+?)__.*-Default$")
 URL_APP_ICON = "web-browser"
 MAX_UNDO_HISTORY = 5
+PICKER_PLUGIN_ID = "hypr-minimizer.picker"
+PICKER_TIMEOUT_SECONDS = 600
 HistoryEntry = dict[str, object]
 
 
@@ -539,7 +543,13 @@ def restore_address(address: str, workspace_id: str | None = None) -> bool:
         return False
 
     target_workspace = workspace_id or origin_workspace
-    history = push_undo_snapshot(history, pruned_state, target_workspace)
+    snapshot = pruned_state
+    if target_workspace != origin_workspace:
+        # The window now belongs here: undo re-minimizes it from this workspace.
+        snapshot = normalize_state(pruned_state)
+        remove_address(snapshot, address)
+        append_to_stack(snapshot, target_workspace, address)
+    history = push_undo_snapshot(history, snapshot, target_workspace)
     remove_address(pruned_state, address)
 
     move_window(address, str(target_workspace))
@@ -697,6 +707,65 @@ def sort_menu_entries(
     )
 
 
+def picker_entry(entry: dict[str, object]) -> dict[str, object]:
+    app_name = str(entry["app_name"])
+    return {
+        "address": entry["address"],
+        "name": app_name,
+        "detail": window_title_detail(app_name, str(entry.get("title") or "")),
+        "icon": entry["icon"],
+        "windowClass": entry["class"],
+        "workspace": entry["workspace_id"],
+    }
+
+
+def shell_picker_selection(entries: list[dict[str, object]]) -> str | None:
+    """Ask the omarchy-shell picker plugin; None when it is not available."""
+    omarchy_shell = shutil.which("omarchy-shell")
+    if not omarchy_shell:
+        return None
+
+    with tempfile.TemporaryDirectory(prefix="hypr-minimizer-") as tmp:
+        selection_file = Path(tmp) / "selection"
+        done_file = Path(tmp) / "done"
+        payload = {
+            "prompt": "Minimized windows",
+            "entries": [picker_entry(entry) for entry in entries],
+            "selectionFile": str(selection_file),
+            "doneFile": str(done_file),
+        }
+        result = subprocess.run(
+            [omarchy_shell, "shell", "summon", PICKER_PLUGIN_ID, json.dumps(payload)],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0 or result.stdout.strip() != "ok":
+            return None
+
+        deadline = time.monotonic() + PICKER_TIMEOUT_SECONDS
+        while not done_file.exists():
+            if time.monotonic() > deadline:
+                return ""
+            time.sleep(0.05)
+
+        if not selection_file.exists():
+            return ""
+        return selection_file.read_text().strip()
+
+
+def restore_selection(selection: str, current_workspace_id: str) -> int:
+    """Apply a picker result: "origin<TAB>address" or "here<TAB>address"."""
+    if not selection:
+        return 0
+
+    target, _, address = selection.partition("\t")
+    if not address:
+        return 1
+
+    workspace_id = current_workspace_id if target == "here" else None
+    return 0 if restore_address(address, workspace_id) else 1
+
+
 def menu_command() -> int:
     entries = minimized_entries(prune=True)
     if not entries:
@@ -705,6 +774,10 @@ def menu_command() -> int:
 
     current_workspace_id = get_active_workspace_id()
     entries = sort_menu_entries(entries, current_workspace_id)
+
+    selection = shell_picker_selection(entries)
+    if selection is not None:
+        return restore_selection(selection, current_workspace_id)
 
     menu = (
         shutil.which("omarchy-menu-select")
@@ -792,6 +865,11 @@ def main() -> None:
 
     restore_parser = subparsers.add_parser("restore")
     restore_parser.add_argument("address")
+    restore_parser.add_argument(
+        "--here",
+        action="store_true",
+        help="restore onto the current workspace instead of the original one",
+    )
 
     args = parser.parse_args()
 
@@ -810,7 +888,8 @@ def main() -> None:
     elif args.command == "list":
         print_list(args.json)
     elif args.command == "restore":
-        raise SystemExit(0 if restore_address(args.address) else 1)
+        workspace_id = get_active_workspace_id() if args.here else None
+        raise SystemExit(0 if restore_address(args.address, workspace_id) else 1)
     elif args.command == "menu":
         raise SystemExit(menu_command())
 

@@ -626,6 +626,38 @@ def test_restore_address_rejects_window_no_longer_minimized(state_file, monkeypa
     assert hyprctl.commands == [["hyprctl", "-j", "clients"]]
 
 
+def test_restore_address_here_moves_window_to_given_workspace(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa"], "2": ["0xccc"]}))
+    hyprctl = HyprctlMock(
+        active_workspaces=[{"id": 3}],
+        clients=[
+            [client("0xaaa"), client("0xccc")],
+            [client("0xaaa"), client("0xccc", workspace_id=3, minimized=False)],
+        ],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.restore_address("0xccc", "3")
+
+    assert read_state(state_file) == {"1": ["0xaaa"]}
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspace", "3,address:0xccc"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xccc"],
+    ]
+
+    # Undo on the current workspace re-minimizes it there.
+    minimizer.undo()
+
+    assert read_state(state_file) == {"1": ["0xaaa"], "3": ["0xccc"]}
+    assert hyprctl.commands[-1] == [
+        "hyprctl",
+        "dispatch",
+        "movetoworkspacesilent",
+        "special:minimized,address:0xccc",
+    ]
+
+
 def test_app_name_and_icon_resolve_through_startup_wm_class(isolated_applications):
     isolated_applications.mkdir(parents=True)
     (isolated_applications / "chrome-hnpf-Default.desktop").write_text(
@@ -651,3 +683,97 @@ def test_url_web_app_without_desktop_file_uses_host_and_browser_icon():
 
     assert minimizer.client_app_name(window) == "web.whatsapp.com"
     assert minimizer.client_icon(window) == "web-browser"
+
+
+def fake_omarchy_shell(monkeypatch, reply, selection=None):
+    """Stand in for `omarchy-shell shell summon`, answering like the picker plugin."""
+    summons = []
+
+    def subprocess_run(args, check=False, text=True, capture_output=True, input=None):
+        payload = json.loads(args[-1])
+        summons.append({"args": args[:-1], "payload": payload})
+        if reply == "ok":
+            if selection is not None:
+                Path(payload["selectionFile"]).write_text(selection + "\n")
+            Path(payload["doneFile"]).touch()
+        return Mock(returncode=0, stdout=reply + "\n")
+
+    monkeypatch.setattr(minimizer.subprocess, "run", subprocess_run)
+    monkeypatch.setattr(
+        minimizer.shutil,
+        "which",
+        lambda cmd: "/usr/bin/omarchy-shell" if cmd == "omarchy-shell" else None,
+    )
+    return summons
+
+
+MENU_ENTRY = {
+    "workspace_id": "2",
+    "address": "0xaaa",
+    "stack_index": 0,
+    "app_name": "Foot",
+    "class": "foot",
+    "icon": "foot",
+    "title": "Foot - vim",
+    "pid": 42,
+    "label": "Foot - vim pid:42",
+}
+
+
+def test_shell_picker_sends_entries_and_returns_selection(monkeypatch):
+    summons = fake_omarchy_shell(monkeypatch, "ok", selection="here\t0xaaa")
+
+    assert minimizer.shell_picker_selection([MENU_ENTRY]) == "here\t0xaaa"
+    assert summons[0]["args"] == [
+        "/usr/bin/omarchy-shell",
+        "shell",
+        "summon",
+        "hypr-minimizer.picker",
+    ]
+    assert summons[0]["payload"]["entries"] == [
+        {
+            "address": "0xaaa",
+            "name": "Foot",
+            "detail": "vim",
+            "icon": "foot",
+            "windowClass": "foot",
+            "workspace": "2",
+        }
+    ]
+
+
+def test_shell_picker_cancel_returns_empty_selection(monkeypatch):
+    fake_omarchy_shell(monkeypatch, "ok")
+
+    assert minimizer.shell_picker_selection([MENU_ENTRY]) == ""
+
+
+def test_shell_picker_unavailable_falls_back(monkeypatch):
+    fake_omarchy_shell(monkeypatch, "unknown")
+
+    assert minimizer.shell_picker_selection([MENU_ENTRY]) is None
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected_workspace"),
+    [("origin\t0xaaa", None), ("here\t0xaaa", "5")],
+)
+def test_restore_selection_targets_origin_or_current_workspace(
+    monkeypatch, selection, expected_workspace
+):
+    calls = []
+    monkeypatch.setattr(
+        minimizer,
+        "restore_address",
+        lambda address, workspace_id=None: calls.append((address, workspace_id)) or True,
+    )
+
+    assert minimizer.restore_selection(selection, "5") == 0
+    assert calls == [("0xaaa", expected_workspace)]
+
+
+def test_restore_selection_ignores_cancel(monkeypatch):
+    monkeypatch.setattr(minimizer, "restore_address", Mock())
+
+    assert minimizer.restore_selection("", "5") == 0
+    minimizer.restore_address.assert_not_called()

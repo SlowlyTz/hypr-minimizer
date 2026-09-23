@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "hypr-minimizer.picker",
+  "name": "hypr-minimizer picker",
+  "version": "1.0.0",
+  "author": "GhostTz",
+  "description": "Pick a minimized window to restore, with app icons",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Picker.qml"
+  }
+}
