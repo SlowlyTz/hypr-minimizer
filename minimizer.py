@@ -12,6 +12,9 @@ from pathlib import Path
 MINIMIZED_WORKSPACE = "special:minimized"
 LEGACY_STATE_FILE = Path("/tmp/hypr_minimizer_state.json")
 BRAVE_APP_CLASS_RE = re.compile(r"^brave-([a-z]+)-Default$")
+# Chromium URL web apps without a desktop file, e.g. chrome-web.whatsapp.com__-Default.
+URL_APP_CLASS_RE = re.compile(r"^chrome-(.+?)__.*-Default$")
+URL_APP_ICON = "web-browser"
 MAX_UNDO_HISTORY = 5
 HistoryEntry = dict[str, object]
 
@@ -266,33 +269,42 @@ def workspace_for_address(
     return None
 
 
+def application_dirs() -> list[Path]:
+    return [
+        Path.home() / ".local" / "share" / "applications",
+        Path("/usr/share/applications"),
+    ]
+
+
+_WM_CLASS_INDEX: dict[tuple[Path, ...], dict[str, Path]] = {}
+
+
+def desktop_files_by_wm_class() -> dict[str, Path]:
+    dirs = tuple(application_dirs())
+    if dirs not in _WM_CLASS_INDEX:
+        index: dict[str, Path] = {}
+        for directory in dirs:
+            for path in sorted(directory.glob("*.desktop")):
+                wm_class = read_desktop_entry(path).get("StartupWMClass")
+                if wm_class:
+                    index.setdefault(wm_class, path)
+        _WM_CLASS_INDEX[dirs] = index
+    return _WM_CLASS_INDEX[dirs]
+
+
 def desktop_file_for_class(window_class: str) -> Path | None:
-    candidates = [
-        Path.home() / ".local" / "share" / "applications" / f"{window_class}.desktop",
-        Path("/usr/share/applications") / f"{window_class}.desktop",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-
+    names = [f"{window_class}.desktop"]
     brave_match = BRAVE_APP_CLASS_RE.match(window_class)
-    if not brave_match:
-        return None
+    if brave_match:
+        names.append(f"brave-{brave_match.group(1)}-Default.desktop")
 
-    app_id = brave_match.group(1)
-    brave_candidates = [
-        Path.home()
-        / ".local"
-        / "share"
-        / "applications"
-        / f"brave-{app_id}-Default.desktop",
-        Path("/usr/share/applications") / f"brave-{app_id}-Default.desktop",
-    ]
-    for path in brave_candidates:
-        if path.exists():
-            return path
+    for name in names:
+        for directory in application_dirs():
+            path = directory / name
+            if path.exists():
+                return path
 
-    return None
+    return desktop_files_by_wm_class().get(window_class)
 
 
 def read_desktop_entry(path: Path) -> dict[str, str]:
@@ -409,6 +421,10 @@ def client_app_name(client: dict) -> str:
         if name:
             return name
 
+    url_app_match = URL_APP_CLASS_RE.match(window_class)
+    if url_app_match:
+        return url_app_match.group(1)
+
     initial_title = client.get("initialTitle")
     if isinstance(initial_title, str) and initial_title:
         return initial_title
@@ -424,6 +440,9 @@ def client_icon(client: dict) -> str:
         icon = desktop_entry.get("Icon")
         if icon:
             return icon
+
+    if URL_APP_CLASS_RE.match(window_class):
+        return URL_APP_ICON
 
     return window_class
 

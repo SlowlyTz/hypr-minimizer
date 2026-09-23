@@ -35,6 +35,15 @@ def legacy_dispatch(monkeypatch):
     monkeypatch.setattr(minimizer, "_LUA_DISPATCH", False)
 
 
+@pytest.fixture(autouse=True)
+def isolated_applications(tmp_path, monkeypatch):
+    # Keep the host's desktop files out of name and icon lookups.
+    applications_dir = tmp_path / ".local" / "share" / "applications"
+    monkeypatch.setattr(minimizer, "application_dirs", lambda: [applications_dir])
+    monkeypatch.setattr(minimizer, "_WM_CLASS_INDEX", {})
+    return applications_dir
+
+
 @pytest.fixture()
 def state_file(tmp_path, monkeypatch):
     path = tmp_path / "hypr-minimizer" / "state.json"
@@ -615,3 +624,30 @@ def test_restore_address_rejects_window_no_longer_minimized(state_file, monkeypa
 
     assert read_state(state_file) == {"1": ["0xaaa"]}
     assert hyprctl.commands == [["hyprctl", "-j", "clients"]]
+
+
+def test_app_name_and_icon_resolve_through_startup_wm_class(isolated_applications):
+    isolated_applications.mkdir(parents=True)
+    (isolated_applications / "chrome-hnpf-Default.desktop").write_text(
+        "\n".join(
+            [
+                "[Desktop Entry]",
+                "Name=WhatsApp Web",
+                "Icon=/icons/whatsapp.png",
+                "StartupWMClass=crx_hnpf",
+            ]
+        )
+    )
+    window = client("0xaaa", window_class="crx_hnpf")
+
+    assert minimizer.client_app_name(window) == "WhatsApp Web"
+    assert minimizer.client_icon(window) == "/icons/whatsapp.png"
+
+
+def test_url_web_app_without_desktop_file_uses_host_and_browser_icon():
+    window = client("0xaaa", window_class="chrome-web.whatsapp.com__-Default") | {
+        "initialTitle": "web.whatsapp.com_/"
+    }
+
+    assert minimizer.client_app_name(window) == "web.whatsapp.com"
+    assert minimizer.client_icon(window) == "web-browser"
