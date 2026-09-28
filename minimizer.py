@@ -24,6 +24,8 @@ PICKER_TIMEOUT_SECONDS = 600
 # Optional helper that decides which screen keeps a single desktop; the picker
 # offers it as a second page. Protocol: `status` prints JSON, `fixed <role>`.
 MONITOR_MANAGER = "hypr-workspace"
+# A few frames for Hyprland to settle a window parked below the screen edge.
+SLIDE_SETTLE_SECONDS = 0.05
 # Hyprland events after which a peeked window may have gone out of sight.
 PEEK_WATCH_EVENTS = {
     "workspace",
@@ -124,6 +126,52 @@ def place_window(address: str, geometry: list[int]) -> None:
     else:
         run_hyprctl("dispatch", "resizewindowpixel", f"exact {width} {height},address:{address}")
         run_hyprctl("dispatch", "movewindowpixel", f"exact {x} {y},address:{address}")
+
+
+def slide_in(address: str, workspace_id: str, x: int, y: int, below: int) -> None:
+    """Bring a window onto a workspace from below the screen edge (Lua dispatch only)."""
+    window = f"window = 'address:{address}'"
+
+    def batch(*steps: str) -> None:
+        # One eval runs within a single frame, so nothing is drawn in between.
+        run_hyprctl("eval", "; ".join(f"hl.dispatch({step})" for step in steps))
+
+    # Moving onto a workspace pulls a window back on screen, so it is parked
+    # below the edge right afterwards, unanimated and unseen.
+    batch(
+        f"hl.dsp.window.set_prop({{ prop = 'no_anim', value = '1', {window} }})",
+        f"hl.dsp.window.move({{ workspace = '{workspace_id}', follow = true, {window} }})",
+        f"hl.dsp.window.move({{ x = {x}, y = {below}, {window} }})",
+    )
+    # Hyprland only takes the parked spot as the animation's start once a frame
+    # has passed; re-enabling animations sooner fades it in at the target instead.
+    time.sleep(SLIDE_SETTLE_SECONDS)
+    batch(
+        f"hl.dsp.window.set_prop({{ prop = 'no_anim', value = 'unset', {window} }})",
+        f"hl.dsp.window.move({{ x = {x}, y = {y}, {window} }})",
+    )
+
+
+def move_animation_seconds() -> float:
+    """How long Hyprland animates a window move, following its animation tree."""
+    try:
+        animations = json.loads(run_hyprctl("-j", "animations").stdout)[0]
+    except (json.JSONDecodeError, IndexError, KeyError, TypeError):
+        return 0.0
+    by_name = {
+        animation.get("name"): animation
+        for animation in animations
+        if isinstance(animation, dict)
+    }
+    for name in ("windowsMove", "windows", "global"):
+        animation = by_name.get(name)
+        if animation is None or (name != "global" and not animation.get("overridden")):
+            continue
+        if not animation.get("enabled", True):
+            return 0.0
+        # Hyprland speeds are in deciseconds.
+        return float(animation.get("speed") or 0) / 10
+    return 0.0
 
 
 def notify(summary: str, body: str) -> None:
@@ -469,19 +517,30 @@ def css_sides(values: list[int]) -> tuple[int, int, int, int]:
     return top, right, bottom, left
 
 
-def peek_target() -> tuple[str, list[int]]:
-    """The focused monitor's workspace and the area a lone tiled window takes on it."""
+def monitor_size(monitor: dict) -> tuple[int, int]:
+    """Logical size, as window coordinates see it."""
+    scale = float(monitor.get("scale") or 1)
+    width = round(monitor["width"] / scale)
+    height = round(monitor["height"] / scale)
+    if int(monitor.get("transform") or 0) % 2:
+        width, height = height, width
+    return width, height
+
+
+def monitor_bottom(monitor: dict) -> int:
+    return int(monitor.get("y") or 0) + monitor_size(monitor)[1]
+
+
+def peek_target() -> tuple[str, list[int], int]:
+    """The focused monitor's workspace, the area a lone tiled window takes on it
+    and the y just below its bottom edge."""
     monitor = next(
         (monitor for monitor in get_monitors() if monitor.get("focused")), None
     )
     if monitor is None:
         raise RuntimeError("no focused monitor")
 
-    scale = float(monitor.get("scale") or 1)
-    width = round(monitor["width"] / scale)
-    height = round(monitor["height"] / scale)
-    if int(monitor.get("transform") or 0) % 2:
-        width, height = height, width
+    width, height = monitor_size(monitor)
 
     reserved_left, reserved_top, reserved_right, reserved_bottom = (
         list(monitor.get("reserved") or []) + [0, 0, 0, 0]
@@ -499,7 +558,7 @@ def peek_target() -> tuple[str, list[int]]:
         width - left - right,
         height - top - bottom,
     ]
-    return str(monitor["activeWorkspace"]["id"]), geometry
+    return str(monitor["activeWorkspace"]["id"]), geometry, monitor_bottom(monitor)
 
 
 def get_clients() -> list[dict]:
@@ -740,19 +799,24 @@ def peek_address(address: str) -> bool:
 
     index = pruned_state[origin_workspace].index(address)
     remove_address(pruned_state, address)
-    workspace_id, geometry = peek_target()
+    workspace_id, geometry, below = peek_target()
     client = clients[address]
     floating = bool(client.get("floating"))
     original_geometry = None
     if floating:
         original_geometry = [*client.get("at", [0, 0]), *client.get("size", [0, 0])]
 
-    # Floating keeps the tiled windows underneath from reflowing. Sizing it
-    # while still hidden makes it appear in place.
+    # Floating keeps the tiled windows underneath from reflowing. The size is
+    # set while still hidden; the position only once it is on the workspace,
+    # because moving it there (to another monitor) shifts it.
     if not floating:
         set_floating(address, True)
     place_window(address, geometry)
-    move_window(address, workspace_id)
+    if _lua_dispatch_supported():
+        slide_in(address, workspace_id, geometry[0], geometry[1], below)
+    else:
+        move_window(address, workspace_id)
+        place_window(address, geometry)
     focus_window(address)
 
     peek = {
@@ -785,6 +849,7 @@ def end_peek() -> str | None:
 
     showing = client_workspace_id(client) == peek["workspace"]
     if showing:
+        slide_out(address, client)
         move_window(address, MINIMIZED_WORKSPACE, silent=True)
     if not peek["floating"]:
         set_floating(address, False)
@@ -796,6 +861,32 @@ def end_peek() -> str | None:
         insert_into_stack(state, str(peek["origin"]), address, peek["index"])  # type: ignore[arg-type]
     save_storage(storage)
     return address if showing else None
+
+
+def slide_out(address: str, client: dict) -> None:
+    """Let a peek that is on screen leave through the bottom edge before hiding it."""
+    if not _lua_dispatch_supported():
+        return
+    workspace_id = client_workspace_id(client)
+    monitor = next(
+        (
+            monitor
+            for monitor in get_monitors()
+            if isinstance(monitor.get("activeWorkspace"), dict)
+            and str(monitor["activeWorkspace"].get("id")) == workspace_id
+        ),
+        None,
+    )
+    seconds = move_animation_seconds() if monitor else 0.0
+    if seconds <= 0:
+        return
+
+    x = (client.get("at") or [0])[0]
+    run_hyprctl(
+        "dispatch",
+        f"hl.dsp.window.move({{ x = {x}, y = {monitor_bottom(monitor)}, window = 'address:{address}' }})",  # type: ignore[arg-type]
+    )
+    time.sleep(seconds)
 
 
 def spawn_peek_watcher(address: str) -> None:

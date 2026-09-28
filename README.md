@@ -11,7 +11,7 @@ Stashes windows into a hidden scratchpad (`special:minimized`) and restores them
 - **Stash others** — minimize all windows on the current workspace except the active one
 - **Picker** — browse minimized windows with app icons; `Enter` restores a window to its own workspace, `Shift+Enter` brings it to the one you're on
 - **Monitor page** (optional) — with an external monitor and a [monitor manager](#monitor-page) installed, `→` in the picker switches to choosing which screen keeps a single desktop
-- **Peek** — `-` in the picker shows a window full-size over the current workspace without touching its layout; `SUPER + M` or leaving the workspace minimizes it again
+- **Peek** — `-` in the picker slides a window in from the bottom, full-size over the current workspace without touching its layout; `SUPER + M` slides it out again, and leaving the workspace minimizes it too
 - **Readable names** — resolves app names and icons from desktop files, including Brave/Chromium web apps (e.g. "Notion" instead of `brave-<appid>-Default`)
 - **Self-healing state** — windows that were closed, or pulled out of the scratchpad by other means, are dropped automatically
 - **Zero Python dependencies** — uses only the standard library
@@ -93,7 +93,7 @@ A window brought to another workspace belongs there afterwards: `undo` on that w
 
 The picker is keyboard only: the mouse does not hover or click inside it (so a resting pointer cannot steal the selection while you type), and clicking outside closes it. Typing always selects the first match.
 
-A peeked window floats above the tiled windows in the same box a lone tiled window would fill (bar, `gaps_out` and border stay free), so the layout underneath does not change. A window that was already floating gets its old position and size back afterwards. It is minimized again, back into its old place in the list, when you press `SUPER + M` (`stash`), switch to another workspace, or run any other minimizer command. A small `hypr-minimizer watch-peek` process listens to Hyprland's event socket while a peek is open and exits with it. Moving a peeked window to another workspace by hand keeps it there.
+A peeked window floats above the tiled windows in the same box a lone tiled window would fill (bar, `gaps_out` and border stay free), so the layout underneath does not change. On Hyprland 0.56+ it slides in from below the screen edge and slides back out when minimized with `SUPER + M`, using Hyprland's own window-move animation (`windowsMove`, inherited from `windows`). A window that was already floating gets its old position and size back afterwards. It is minimized again, back into its old place in the list, when you press `SUPER + M` (`stash`), switch to another workspace, or run any other minimizer command. A small `hypr-minimizer watch-peek` process listens to Hyprland's event socket while a peek is open and exits with it. Moving a peeked window to another workspace by hand keeps it there.
 
 ### Monitor page
 

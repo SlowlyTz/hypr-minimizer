@@ -16,12 +16,14 @@ class HyprctlMock:
         clients=None,
         monitors=None,
         options=None,
+        animations=None,
     ):
         self.active_windows = list(active_windows or [])
         self.active_workspaces = list(active_workspaces or [])
         self.clients = list(clients or [])
         self.monitors = list(monitors or [])
         self.options = dict(options or {})
+        self.animations = animations
         self.commands = []
 
     def __call__(self, args, check, text, capture_output):
@@ -39,6 +41,9 @@ class HyprctlMock:
         if args == ["hyprctl", "-j", "monitors"]:
             return Mock(stdout=json.dumps(self.monitors.pop(0)))
 
+        if args == ["hyprctl", "-j", "animations"]:
+            return Mock(stdout=json.dumps(self.animations))
+
         if args[:3] == ["hyprctl", "-j", "getoption"]:
             return Mock(stdout=json.dumps(self.options[args[3]]))
 
@@ -49,6 +54,12 @@ class HyprctlMock:
 def legacy_dispatch(monkeypatch):
     # Skip the Lua probe; tests assert the classic string dispatchers.
     monkeypatch.setattr(minimizer, "_LUA_DISPATCH", False)
+
+
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch):
+    # Peeks wait out their slide animation; tests should not.
+    monkeypatch.setattr(minimizer.time, "sleep", lambda seconds: None)
 
 
 @pytest.fixture(autouse=True)
@@ -860,11 +871,14 @@ def test_peek_shows_window_in_the_tiled_area_of_current_workspace(state_file, mo
     assert minimizer.peek_address("0xbbb")
 
     # Same box a lone tiled window gets: bar, gaps_out and border left free.
-    assert hyprctl.commands[-5:] == [
+    # Classic dispatchers cannot slide, so the box is simply set again after the move.
+    assert hyprctl.commands[-7:] == [
         ["hyprctl", "dispatch", "setfloating", "address:0xbbb"],
         ["hyprctl", "dispatch", "resizewindowpixel", "exact 1896 1030,address:0xbbb"],
         ["hyprctl", "dispatch", "movewindowpixel", "exact 12 38,address:0xbbb"],
         ["hyprctl", "dispatch", "movetoworkspace", "5,address:0xbbb"],
+        ["hyprctl", "dispatch", "resizewindowpixel", "exact 1896 1030,address:0xbbb"],
+        ["hyprctl", "dispatch", "movewindowpixel", "exact 12 38,address:0xbbb"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xbbb"],
     ]
     storage = json.loads(state_file.read_text())
@@ -884,7 +898,11 @@ def test_peek_target_follows_monitor_offset_scale_and_gaps(monkeypatch):
     )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
 
-    assert minimizer.peek_target() == ("5", [1920 + 21, 6, 1920 - 42, 1080 - 30 - 12])
+    assert minimizer.peek_target() == (
+        "5",
+        [1920 + 21, 6, 1920 - 42, 1080 - 30 - 12],
+        1080,
+    )
 
 
 def test_peek_restores_floating_window_geometry(state_file, monkeypatch):
@@ -949,15 +967,86 @@ def test_stash_on_other_window_ends_peek_and_minimizes_it(state_file, monkeypatc
     assert read_state(state_file) == {"1": ["0xbbb"], "5": ["0xddd"]}
 
 
-def test_lua_end_peek_hides_then_retiles(state_file, monkeypatch):
+OMARCHY_ANIMATIONS = [
+    [
+        {"name": "global", "overridden": True, "enabled": True, "speed": 10.0},
+        {"name": "windows", "overridden": True, "enabled": True, "speed": 3.79},
+        {"name": "windowsMove", "overridden": False, "enabled": True, "speed": 0.0},
+    ],
+    [],
+]
+
+
+def test_move_animation_seconds_follows_inheritance(monkeypatch):
+    hyprctl = HyprctlMock(animations=OMARCHY_ANIMATIONS)
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+    assert minimizer.move_animation_seconds() == pytest.approx(0.379)
+
+    disabled = json.loads(json.dumps(OMARCHY_ANIMATIONS))
+    disabled[0][1]["enabled"] = False
+    hyprctl.animations = disabled
+    assert minimizer.move_animation_seconds() == 0.0
+
+
+def test_lua_peek_slides_in_from_below(state_file, monkeypatch):
+    monkeypatch.setattr(minimizer, "_LUA_DISPATCH", True)
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xbbb"]}))
+    hyprctl = HyprctlMock(
+        clients=[[client("0xbbb")]],
+        monitors=[[focused_monitor(x=1920, width=2560, height=1440)]],
+        options=OMARCHY_OPTIONS,
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+    monkeypatch.setattr(minimizer, "spawn_peek_watcher", lambda address: None)
+
+    assert minimizer.peek_address("0xbbb")
+
+    # Parked below the edge without animation, then slid up to the target.
+    window = "window = 'address:0xbbb'"
+    assert hyprctl.commands[-3:] == [
+        [
+            "hyprctl",
+            "eval",
+            f"hl.dispatch(hl.dsp.window.set_prop({{ prop = 'no_anim', value = '1', {window} }})); "
+            f"hl.dispatch(hl.dsp.window.move({{ workspace = '5', follow = true, {window} }})); "
+            f"hl.dispatch(hl.dsp.window.move({{ x = 1932, y = 1440, {window} }}))",
+        ],
+        [
+            "hyprctl",
+            "eval",
+            f"hl.dispatch(hl.dsp.window.set_prop({{ prop = 'no_anim', value = 'unset', {window} }})); "
+            f"hl.dispatch(hl.dsp.window.move({{ x = 1932, y = 38, {window} }}))",
+        ],
+        ["hyprctl", "dispatch", f"hl.dsp.focus({{ {window} }})"],
+    ]
+
+
+def test_lua_end_peek_slides_out_then_hides_and_retiles(state_file, monkeypatch):
     monkeypatch.setattr(minimizer, "_LUA_DISPATCH", True)
     write_peek(state_file, {}, PEEK)
-    hyprctl = HyprctlMock(clients=[[peek_client("0xbbb")]])
+    peeked = peek_client("0xbbb")
+    peeked["at"] = [12, 38]
+    hyprctl = HyprctlMock(
+        clients=[[peeked]],
+        monitors=[[focused_monitor()]],
+        animations=OMARCHY_ANIMATIONS,
+    )
     monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+    sleeps = []
+    monkeypatch.setattr(minimizer.time, "sleep", sleeps.append)
 
     assert minimizer.end_peek() == "0xbbb"
 
+    assert sleeps == [pytest.approx(0.379)]
     assert hyprctl.commands[1:] == [
+        ["hyprctl", "-j", "monitors"],
+        ["hyprctl", "-j", "animations"],
+        [
+            "hyprctl",
+            "dispatch",
+            "hl.dsp.window.move({ x = 12, y = 1080, window = 'address:0xbbb' })",
+        ],
         [
             "hyprctl",
             "dispatch",
@@ -969,6 +1058,20 @@ def test_lua_end_peek_hides_then_retiles(state_file, monkeypatch):
             "hl.dsp.window.float({ action = 'disable', window = 'address:0xbbb' })",
         ],
     ]
+
+
+def test_lua_end_peek_skips_slide_when_workspace_is_hidden(state_file, monkeypatch):
+    monkeypatch.setattr(minimizer, "_LUA_DISPATCH", True)
+    write_peek(state_file, {}, PEEK)
+    hyprctl = HyprctlMock(
+        clients=[[peek_client("0xbbb")]],
+        monitors=[[focused_monitor(workspace_id=6)]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.end_peek() == "0xbbb"
+    assert ["hyprctl", "-j", "animations"] not in hyprctl.commands
+    assert hyprctl.commands[2][2].startswith("hl.dsp.window.move({ workspace = 'special:minimized'")
 
 
 def test_end_peek_keeps_window_moved_elsewhere_by_hand(state_file, monkeypatch):
