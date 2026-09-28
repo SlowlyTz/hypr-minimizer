@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Run hypr-screens from a checkout, also through a symlink in ~/.local/bin."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from hypr_screens.cli import main  # noqa: E402
+
+main()

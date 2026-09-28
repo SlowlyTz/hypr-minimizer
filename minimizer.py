@@ -21,9 +21,6 @@ URL_APP_ICON = "web-browser"
 MAX_UNDO_HISTORY = 5
 PICKER_PLUGIN_ID = "hypr-minimizer.picker"
 PICKER_TIMEOUT_SECONDS = 600
-# Optional helper that decides which screen keeps a single desktop; the picker
-# offers it as a second page. Protocol: `status` prints JSON, `fixed <role>`.
-MONITOR_MANAGER = "hypr-workspace"
 # A few frames for Hyprland to settle a window parked below the screen edge.
 SLIDE_SETTLE_SECONDS = 0.05
 # Hyprland events after which a peeked window may have gone out of sight.
@@ -1117,38 +1114,7 @@ def picker_entry(entry: dict[str, object]) -> dict[str, object]:
     }
 
 
-def monitor_status() -> dict[str, object] | None:
-    """Screens and fixed role from the monitor manager; None without an external monitor."""
-    command = shutil.which(MONITOR_MANAGER)
-    if not command:
-        return None
-
-    result = subprocess.run(
-        [command, "status"], check=False, text=True, capture_output=True
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        status = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(status, dict) or not status.get("external"):
-        return None
-    return status
-
-
-def set_fixed_screen(role: str) -> int:
-    command = shutil.which(MONITOR_MANAGER)
-    if not command or role not in {"panel", "external"}:
-        return 1
-    return subprocess.run(
-        [command, "fixed", role], check=False, text=True, capture_output=True
-    ).returncode
-
-
-def shell_picker_selection(
-    entries: list[dict[str, object]], monitors: dict[str, object] | None = None
-) -> str | None:
+def shell_picker_selection(entries: list[dict[str, object]]) -> str | None:
     """Ask the omarchy-shell picker plugin; None when it is not available."""
     omarchy_shell = shutil.which("omarchy-shell")
     if not omarchy_shell:
@@ -1163,8 +1129,6 @@ def shell_picker_selection(
             "selectionFile": str(selection_file),
             "doneFile": str(done_file),
         }
-        if monitors:
-            payload["monitors"] = monitors
         result = subprocess.run(
             [omarchy_shell, "shell", "summon", PICKER_PLUGIN_ID, json.dumps(payload)],
             text=True,
@@ -1185,7 +1149,7 @@ def shell_picker_selection(
 
 
 def restore_selection(selection: str, current_workspace_id: str) -> int:
-    """Apply a picker result: "origin|here|peek<TAB>address" or "fixed<TAB>panel|external"."""
+    """Apply a picker result: "origin|here|peek<TAB>address"."""
     if not selection:
         return 0
 
@@ -1196,9 +1160,6 @@ def restore_selection(selection: str, current_workspace_id: str) -> int:
     if target == "peek":
         return 0 if peek_address(address) else 1
 
-    if target == "fixed":
-        return set_fixed_screen(address)
-
     workspace_id = current_workspace_id if target == "here" else None
     return 0 if restore_address(address, workspace_id) else 1
 
@@ -1206,22 +1167,16 @@ def restore_selection(selection: str, current_workspace_id: str) -> int:
 def menu_command() -> int:
     end_peek()
     entries = minimized_entries(prune=True)
-    monitors = monitor_status()
-    if not entries and not monitors:
+    if not entries:
         notify("Minimized windows", "No minimized windows to restore")
         return 0
 
     current_workspace_id = get_active_workspace_id()
     entries = sort_menu_entries(entries, current_workspace_id)
 
-    # With a monitor page to show, the picker opens even without windows.
-    selection = shell_picker_selection(entries, monitors)
+    selection = shell_picker_selection(entries)
     if selection is not None:
         return restore_selection(selection, current_workspace_id)
-
-    if not entries:
-        notify("Minimized windows", "No minimized windows to restore")
-        return 0
 
     menu = (
         shutil.which("omarchy-menu-select")
@@ -1291,6 +1246,19 @@ def menu_command() -> int:
     return 1
 
 
+def first_run() -> None:
+    """Start the shared setup wizard the first time a command runs in a terminal."""
+    if not sys.stdin.isatty():
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from hypr_screens import config as screens_config, setup
+    except ImportError:
+        return
+    if not screens_config.exists():
+        setup.run()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Workspace-aware LIFO minimizer for Hyprland."
@@ -1322,6 +1290,8 @@ def main() -> None:
     watch_parser.add_argument("address")
 
     args = parser.parse_args()
+    if args.command not in ("watch-peek", "list", "clear-missing"):
+        first_run()
 
     if args.command == "stash":
         stash()

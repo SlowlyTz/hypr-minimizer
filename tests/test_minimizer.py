@@ -63,12 +63,6 @@ def no_sleep(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_monitor_manager(monkeypatch):
-    # Keep the host's hypr-workspace out of menu tests.
-    monkeypatch.setattr(minimizer, "MONITOR_MANAGER", "hypr-minimizer-test-missing")
-
-
-@pytest.fixture(autouse=True)
 def isolated_applications(tmp_path, monkeypatch):
     # Keep the host's desktop files out of name and icon lookups.
     applications_dir = tmp_path / ".local" / "share" / "applications"
@@ -1185,83 +1179,3 @@ def test_watch_peek_rechecks_on_workspace_events(tmp_path, monkeypatch):
     server.close()
 
     assert calls == ["0xbbb", "0xbbb"]
-
-
-MONITORS = {
-    "panel": "eDP-1",
-    "external": "HDMI-A-1",
-    "description": "Fujitsu B27-9",
-    "fixed": "external",
-}
-
-
-def fake_monitor_manager(monkeypatch, stdout, returncode=0):
-    calls = []
-
-    def subprocess_run(args, check=False, text=True, capture_output=True):
-        calls.append(args)
-        return Mock(returncode=returncode, stdout=stdout)
-
-    monkeypatch.setattr(minimizer.subprocess, "run", subprocess_run)
-    monkeypatch.setattr(
-        minimizer.shutil,
-        "which",
-        lambda cmd: "/bin/hypr-workspace" if cmd == minimizer.MONITOR_MANAGER else None,
-    )
-    return calls
-
-
-def test_monitor_status_reads_manager_json(monkeypatch):
-    calls = fake_monitor_manager(monkeypatch, json.dumps(MONITORS))
-
-    assert minimizer.monitor_status() == MONITORS
-    assert calls == [["/bin/hypr-workspace", "status"]]
-
-
-@pytest.mark.parametrize(
-    ("stdout", "returncode"),
-    [(json.dumps({"panel": "eDP-1", "external": None}), 0), ("garbage", 0), ("", 1)],
-)
-def test_monitor_status_is_none_without_external_monitor(monkeypatch, stdout, returncode):
-    fake_monitor_manager(monkeypatch, stdout, returncode)
-
-    assert minimizer.monitor_status() is None
-
-
-def test_monitor_status_is_none_without_manager():
-    assert minimizer.monitor_status() is None
-
-
-def test_restore_selection_sets_fixed_screen(monkeypatch):
-    calls = fake_monitor_manager(monkeypatch, "")
-
-    assert minimizer.restore_selection("fixed\tpanel", "5") == 0
-    assert calls == [["/bin/hypr-workspace", "fixed", "panel"]]
-    assert minimizer.restore_selection("fixed\tbogus", "5") == 1
-    assert len(calls) == 1
-
-
-def test_menu_opens_monitor_page_without_minimized_windows(monkeypatch):
-    monkeypatch.setattr(minimizer, "minimized_entries", lambda prune=False: [])
-    monkeypatch.setattr(minimizer, "monitor_status", lambda: MONITORS)
-    monkeypatch.setattr(minimizer, "get_active_workspace_id", lambda: "1")
-    summons = []
-    monkeypatch.setattr(
-        minimizer,
-        "shell_picker_selection",
-        lambda entries, monitors=None: summons.append((entries, monitors)) or "",
-    )
-    notify = Mock()
-    monkeypatch.setattr(minimizer, "notify", notify)
-
-    assert minimizer.menu_command() == 0
-    assert summons == [([], MONITORS)]
-    notify.assert_not_called()
-
-
-def test_shell_picker_passes_monitors(monkeypatch):
-    summons = fake_omarchy_shell(monkeypatch, "ok", selection="fixed\tpanel")
-
-    assert minimizer.shell_picker_selection([], MONITORS) == "fixed\tpanel"
-    assert summons[0]["payload"]["monitors"] == MONITORS
-    assert summons[0]["payload"]["entries"] == []

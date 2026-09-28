@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "hypr-screens.workspaces",
+  "name": "hypr-screens workspaces",
+  "version": "1.0.0",
+  "author": "SlowlyTz",
+  "description": "Workspace indicator that knows the fixed screen of hypr-screens",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Workspaces.qml"
+  },
+  "barWidget": {
+    "displayName": "hypr-screens workspaces",
+    "description": "Workspace indicator that knows the fixed screen of hypr-screens",
+    "category": "Compositor",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.workspaces"
+  }
+}

@@ -4,6 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["minimizer"]
+packages = ["hypr_screens"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [project]
 name = "hypr-minimizer"
@@ -35,6 +40,7 @@ dev = ["pytest"]
 
 [project.scripts]
 hypr-minimizer = "minimizer:main"
+hypr-screens = "hypr_screens.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/SlowlyTz/hypr-minimizer"

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "hypr-screens.menu",
+  "name": "hypr-screens menu",
+  "version": "1.0.0",
+  "author": "SlowlyTz",
+  "description": "Known screens, per-screen settings and keys for hypr-screens (keyboard only)",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Menu.qml"
+  }
+}
