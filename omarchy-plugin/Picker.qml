@@ -9,10 +9,14 @@ import qs.Ui
 //
 // Summoned by `hypr-minimizer menu` with a JSON payload:
 //   { "prompt": "...", "selectionFile": "...", "doneFile": "...",
-//     "entries": [{ "address", "name", "detail", "icon", "windowClass", "workspace" }] }
+//     "entries": [{ "address", "name", "detail", "icon", "windowClass", "workspace" }],
+//     "monitors": { "panel", "external", "description", "fixed" } }   (optional)
 // Enter writes "origin<TAB><address>" to selectionFile, Shift+Enter writes
 // "here<TAB><address>", "-" writes "peek<TAB><address>"; cancelling writes
 // nothing. doneFile is touched last.
+//
+// With "monitors", Right/Left switch to a second page that picks the screen
+// keeping a single desktop; Enter there writes "fixed<TAB>panel|external".
 Item {
   id: root
 
@@ -26,6 +30,10 @@ Item {
   property var entries: []
   property string selectionFile: ""
   property string doneFile: ""
+  property var monitors: null
+  property int page: 0            // 0 = windows, 1 = monitors
+  property int monitorIndex: 0
+  readonly property bool hasMonitorPage: root.monitors !== null
 
   // Shares the [menu] surface tokens so themes style it like the Omarchy menu.
   property color background: Color.menu.background
@@ -45,7 +53,8 @@ Item {
   property int rowSpacing: Style.spacing.xs
   property int iconSize: Math.round(Style.font.iconLarge * 1.5)
   property int cardWidth: Math.min(Style.space(520), panel.width - Style.gapsOut * 2)
-  property int listHeight: Math.max(1, displayModel.count) * (rowHeight + rowSpacing)
+  // Sized for the longer page so switching pages does not resize the card.
+  property int listHeight: Math.max(1, displayModel.count, monitorModel.count) * (rowHeight + rowSpacing)
   property int cardHeight: Math.min(
     contentMargin * 2 + headerHeight + contentSpacing + listHeight + contentSpacing + footerHeight,
     panel.height - Style.gapsOut * 2)
@@ -61,9 +70,12 @@ Item {
     root.entries = Array.isArray(payload.entries) ? payload.entries : []
     root.selectionFile = String(payload.selectionFile || "")
     root.doneFile = String(payload.doneFile || "")
+    root.monitors = payload.monitors && payload.monitors.external ? payload.monitors : null
     root.filterText = ""
     root.selectedIndex = 0
+    root.page = 0
     root.rebuildDisplay()
+    root.rebuildMonitors()
     root.opened = true
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -131,6 +143,46 @@ Item {
     root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, displayModel.count - 1))
   }
 
+  function themedIcon(names) {
+    for (var i = 0; i < names.length; i++) {
+      var path = Quickshell.iconPath(names[i], true)
+      if (path) return path
+    }
+    return Quickshell.iconPath("application-x-executable", true)
+  }
+
+  function rebuildMonitors() {
+    monitorModel.clear()
+    if (!root.hasMonitorPage) return
+
+    var fixed = String(root.monitors.fixed || "")
+    monitorModel.append({
+      role: "panel",
+      name: "Laptop",
+      detail: String(root.monitors.panel || ""),
+      iconUrl: root.themedIcon(["computer-laptop", "computer"]),
+      current: fixed === "panel"
+    })
+    monitorModel.append({
+      role: "external",
+      name: "External monitor",
+      detail: String(root.monitors.description || root.monitors.external || ""),
+      iconUrl: root.themedIcon(["video-display", "display", "computer"]),
+      current: fixed === "external"
+    })
+    root.monitorIndex = fixed === "external" ? 1 : 0
+  }
+
+  function showPage(nextPage) {
+    if (nextPage === 1 && !root.hasMonitorPage) return
+    root.page = nextPage
+  }
+
+  function applyMonitor(index) {
+    if (index < 0 || index >= monitorModel.count) return
+    root.dismiss("fixed\t" + monitorModel.get(index).role)
+  }
+
   function setFilter(nextFilter) {
     root.filterText = nextFilter
     root.selectedIndex = 0
@@ -138,6 +190,11 @@ Item {
   }
 
   function select(delta) {
+    if (root.page === 1) {
+      if (monitorModel.count > 0)
+        root.monitorIndex = (root.monitorIndex + delta + monitorModel.count) % monitorModel.count
+      return
+    }
     if (displayModel.count === 0) return
     root.selectedIndex = (root.selectedIndex + delta + displayModel.count) % displayModel.count
     resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
@@ -149,6 +206,7 @@ Item {
   }
 
   ListModel { id: displayModel }
+  ListModel { id: monitorModel }
 
   PanelWindow {
     id: panel
@@ -193,6 +251,18 @@ Item {
             if (root.filterText) root.setFilter("")
             else root.dismiss(null)
             event.accepted = true
+          } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Left) {
+            root.showPage(event.key === Qt.Key_Right ? 1 : 0)
+            event.accepted = true
+          } else if (root.page === 1) {
+            // Monitor page: only moving, applying and leaving.
+            if (event.key === Qt.Key_Up || event.key === Qt.Key_Backtab)
+              root.select(-1)
+            else if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab)
+              root.select(1)
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+              root.applyMonitor(root.monitorIndex)
+            event.accepted = true
           } else if (Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
@@ -231,14 +301,45 @@ Item {
           Text {
             textFormat: Text.PlainText
             anchors.left: parent.left
-            anchors.right: parent.right
+            anchors.right: pageTabs.visible ? pageTabs.left : parent.right
+            anchors.rightMargin: pageTabs.visible ? Style.space(12) : 0
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || (root.prompt + "…")
+            text: root.page === 1 ? "Screen with one desktop" : (root.filterText || (root.prompt + "…"))
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            opacity: root.page === 0 && root.filterText ? 1 : 0.58
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             elide: Text.ElideRight
+          }
+
+          Row {
+            id: pageTabs
+            visible: root.hasMonitorPage
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(12)
+
+            Repeater {
+              model: ["Windows", "Monitors"]
+
+              Text {
+                required property int index
+                required property string modelData
+                textFormat: Text.PlainText
+                text: modelData
+                color: root.foreground
+                opacity: root.page === index ? 1 : 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: root.page === index
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.showPage(index)
+                }
+              }
+            }
           }
         }
 
@@ -249,6 +350,7 @@ Item {
           ListView {
             id: resultList
             anchors.fill: parent
+            visible: root.page === 0
             model: displayModel
             clip: true
             spacing: root.rowSpacing
@@ -343,9 +445,101 @@ Item {
             }
           }
 
+          ListView {
+            id: monitorList
+            anchors.fill: parent
+            visible: root.page === 1
+            model: monitorModel
+            clip: true
+            spacing: root.rowSpacing
+            boundsBehavior: Flickable.StopAtBounds
+
+            delegate: Rectangle {
+              id: monitorRow
+              required property int index
+              required property string name
+              required property string detail
+              required property string iconUrl
+              required property bool current
+
+              readonly property bool hasCursor: monitorRow.index === root.monitorIndex
+
+              width: ListView.view.width
+              height: root.rowHeight
+              radius: root.cornerRadius
+              color: monitorRow.hasCursor ? root.selectedBackground : "transparent"
+
+              Image {
+                id: monitorIcon
+                width: root.iconSize
+                height: root.iconSize
+                fillMode: Image.PreserveAspectFit
+                sourceSize.width: width * Screen.devicePixelRatio
+                sourceSize.height: height * Screen.devicePixelRatio
+                source: monitorRow.iconUrl
+                asynchronous: true
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Column {
+                anchors.left: monitorIcon.right
+                anchors.leftMargin: Style.space(12)
+                anchors.right: currentText.left
+                anchors.rightMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  textFormat: Text.PlainText
+                  width: parent.width
+                  text: monitorRow.name
+                  color: monitorRow.hasCursor ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  width: parent.width
+                  visible: monitorRow.detail.length > 0
+                  text: monitorRow.detail
+                  color: root.foreground
+                  opacity: 0.58
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
+                }
+              }
+
+              Text {
+                id: currentText
+                textFormat: Text.PlainText
+                text: monitorRow.current ? "one desktop" : ""
+                color: root.foreground
+                opacity: 0.58
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onContainsMouseChanged: if (containsMouse) root.monitorIndex = monitorRow.index
+                onClicked: root.applyMonitor(monitorRow.index)
+              }
+            }
+          }
+
           Text {
             anchors.centerIn: parent
-            visible: displayModel.count === 0
+            visible: root.page === 0 && displayModel.count === 0
             textFormat: Text.PlainText
             text: root.entries.length === 0 ? "No minimized windows" : "No matches for “" + root.filterText + "”"
             color: root.foreground
@@ -359,7 +553,11 @@ Item {
           width: parent.width
           height: root.footerHeight
           textFormat: Text.PlainText
-          text: "Enter  restore to its desktop     Shift+Enter  bring here     -  peek"
+          text: root.page === 1
+            ? "Enter  keep one desktop here     ←  windows"
+            : (root.hasMonitorPage
+              ? "Enter  restore     Shift+Enter  bring here     -  peek     →  monitors"
+              : "Enter  restore to its desktop     Shift+Enter  bring here     -  peek")
           color: root.foreground
           opacity: 0.45
           font.family: root.fontFamily
