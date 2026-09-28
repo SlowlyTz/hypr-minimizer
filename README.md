@@ -81,8 +81,8 @@ omarchy plugin enable hypr-minimizer.picker
 
 | Key | Action |
 |---|---|
-| `Enter` / click | Restore the window to the workspace it was minimized from |
-| `Shift+Enter` / `Shift`+click / middle click | Bring the window to the current workspace |
+| `Enter` | Restore the window to the workspace it was minimized from |
+| `Shift+Enter` | Bring the window to the current workspace |
 | `-` | Peek: show the window full-size over the current workspace |
 | `→` / `←` | Switch between the window list and the [monitor page](#monitor-page) |
 | `↑` `↓` / `Tab` | Move the selection |
@@ -90,6 +90,8 @@ omarchy plugin enable hypr-minimizer.picker
 | `Esc` | Clear the filter, then close |
 
 A window brought to another workspace belongs there afterwards: `undo` on that workspace minimizes it again. The plain-text fallback menus only support `Enter`.
+
+The picker is keyboard only: the mouse does not hover or click inside it (so a resting pointer cannot steal the selection while you type), and clicking outside closes it. Typing always selects the first match.
 
 A peeked window floats above the tiled windows in the same box a lone tiled window would fill (bar, `gaps_out` and border stay free), so the layout underneath does not change. A window that was already floating gets its old position and size back afterwards. It is minimized again, back into its old place in the list, when you press `SUPER + M` (`stash`), switch to another workspace, or run any other minimizer command. A small `hypr-minimizer watch-peek` process listens to Hyprland's event socket while a peek is open and exits with it. Moving a peeked window to another workspace by hand keeps it there.
 

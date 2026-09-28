@@ -17,6 +17,10 @@ import qs.Ui
 //
 // With "monitors", Right/Left switch to a second page that picks the screen
 // keeping a single desktop; Enter there writes "fixed<TAB>panel|external".
+//
+// Keyboard only: the mouse neither hovers nor clicks inside the card, so a
+// pointer resting over the list cannot steal the selection while filtering.
+// Clicking outside the card still closes it.
 Item {
   id: root
 
@@ -332,12 +336,6 @@ Item {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: root.page === index
-
-                MouseArea {
-                  anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.showPage(index)
-                }
               }
             }
           }
@@ -430,18 +428,6 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
               }
 
-              MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: if (containsMouse) root.selectedIndex = row.index
-                // Shift+click or middle click brings the window here.
-                onClicked: function(mouse) {
-                  var here = mouse.button === Qt.MiddleButton || (mouse.modifiers & Qt.ShiftModifier) !== 0
-                  root.activateIndex(row.index, here ? "here" : "origin")
-                }
-              }
             }
           }
 
@@ -527,13 +513,6 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
               }
 
-              MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: if (containsMouse) root.monitorIndex = monitorRow.index
-                onClicked: root.applyMonitor(monitorRow.index)
-              }
             }
           }
 
