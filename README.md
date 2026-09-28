@@ -10,6 +10,7 @@ Stashes windows into a hidden scratchpad (`special:minimized`) and restores them
 - **Undo** (up to 5 steps) — revert stash, pop, or restore operations per workspace
 - **Stash others** — minimize all windows on the current workspace except the active one
 - **Picker** — browse minimized windows with app icons; `Enter` restores a window to its own workspace, `Shift+Enter` brings it to the one you're on
+- **Peek** — `-` in the picker shows a window full-size over the current workspace without touching its layout; `SUPER + M` or leaving the workspace minimizes it again
 - **Readable names** — resolves app names and icons from desktop files, including Brave/Chromium web apps (e.g. "Notion" instead of `brave-<appid>-Default`)
 - **Self-healing state** — windows that were closed, or pulled out of the scratchpad by other means, are dropped automatically
 - **Zero Python dependencies** — uses only the standard library
@@ -70,6 +71,7 @@ omarchy plugin enable hypr-minimizer.picker
 | `menu` | Pick a minimized window to restore |
 | `restore <address>` | Restore a window by address (e.g. `0xabc123`) to its original workspace |
 | `restore <address> --here` | Restore a window by address onto the current workspace |
+| `peek <address>` | Show a minimized window full-size over the current workspace until it is minimized again |
 | `list` | Print all minimized windows |
 | `list --json` | Print all minimized windows as JSON |
 | `clear-missing` | Drop entries for windows that are gone or no longer minimized |
@@ -80,11 +82,14 @@ omarchy plugin enable hypr-minimizer.picker
 |---|---|
 | `Enter` / click | Restore the window to the workspace it was minimized from |
 | `Shift+Enter` / `Shift`+click / middle click | Bring the window to the current workspace |
+| `-` | Peek: show the window full-size over the current workspace |
 | `↑` `↓` / `Tab` | Move the selection |
 | Typing | Filter by app name or window title |
 | `Esc` | Clear the filter, then close |
 
 A window brought to another workspace belongs there afterwards: `undo` on that workspace minimizes it again. The plain-text fallback menus only support `Enter`.
+
+A peeked window floats above the tiled windows in the same box a lone tiled window would fill (bar, `gaps_out` and border stay free), so the layout underneath does not change. A window that was already floating gets its old position and size back afterwards. It is minimized again, back into its old place in the list, when you press `SUPER + M` (`stash`), switch to another workspace, or run any other minimizer command. A small `hypr-minimizer watch-peek` process listens to Hyprland's event socket while a peek is open and exits with it. Moving a peeked window to another workspace by hand keeps it there.
 
 ## Keybindings
 

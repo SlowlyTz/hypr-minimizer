@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -8,10 +9,19 @@ import minimizer
 
 
 class HyprctlMock:
-    def __init__(self, active_windows=None, active_workspaces=None, clients=None):
+    def __init__(
+        self,
+        active_windows=None,
+        active_workspaces=None,
+        clients=None,
+        monitors=None,
+        options=None,
+    ):
         self.active_windows = list(active_windows or [])
         self.active_workspaces = list(active_workspaces or [])
         self.clients = list(clients or [])
+        self.monitors = list(monitors or [])
+        self.options = dict(options or {})
         self.commands = []
 
     def __call__(self, args, check, text, capture_output):
@@ -25,6 +35,12 @@ class HyprctlMock:
 
         if args == ["hyprctl", "-j", "clients"]:
             return Mock(stdout=json.dumps(self.clients.pop(0)))
+
+        if args == ["hyprctl", "-j", "monitors"]:
+            return Mock(stdout=json.dumps(self.monitors.pop(0)))
+
+        if args[:3] == ["hyprctl", "-j", "getoption"]:
+            return Mock(stdout=json.dumps(self.options[args[3]]))
 
         return Mock(stdout="")
 
@@ -777,3 +793,286 @@ def test_restore_selection_ignores_cancel(monkeypatch):
 
     assert minimizer.restore_selection("", "5") == 0
     minimizer.restore_address.assert_not_called()
+
+
+def peek_client(address, workspace_id=5):
+    peeked = client(address, workspace_id=workspace_id, minimized=False)
+    peeked["floating"] = True
+    return peeked
+
+
+OMARCHY_OPTIONS = {
+    "general:gaps_out": {"option": "general:gaps_out", "css": "10 10 10 10", "set": True},
+    "general:border_size": {"option": "general:border_size", "int": 2, "set": True},
+}
+
+
+def focused_monitor(workspace_id=5, **overrides):
+    return {
+        "focused": True,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1,
+        "transform": 0,
+        "reserved": [0, 26, 0, 0],
+        "activeWorkspace": {"id": workspace_id},
+        **overrides,
+    }
+
+
+def write_peek(state_file, stacks, peek):
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps({"stacks": stacks, "history": [], "peek": peek}))
+
+
+PEEK = {
+    "address": "0xbbb",
+    "origin": "1",
+    "workspace": "5",
+    "index": 0,
+    "floating": False,
+    "geometry": None,
+}
+
+
+def test_peek_shows_window_in_the_tiled_area_of_current_workspace(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xaaa", "0xbbb", "0xccc"]}))
+    tiled = client("0xbbb")
+    tiled["floating"] = False
+    hyprctl = HyprctlMock(
+        clients=[[client("0xaaa"), tiled, client("0xccc")]],
+        monitors=[[focused_monitor(workspace_id=6, focused=False), focused_monitor()]],
+        options=OMARCHY_OPTIONS,
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+    watchers = []
+    monkeypatch.setattr(minimizer, "spawn_peek_watcher", watchers.append)
+
+    assert minimizer.peek_address("0xbbb")
+
+    # Same box a lone tiled window gets: bar, gaps_out and border left free.
+    assert hyprctl.commands[-5:] == [
+        ["hyprctl", "dispatch", "setfloating", "address:0xbbb"],
+        ["hyprctl", "dispatch", "resizewindowpixel", "exact 1896 1030,address:0xbbb"],
+        ["hyprctl", "dispatch", "movewindowpixel", "exact 12 38,address:0xbbb"],
+        ["hyprctl", "dispatch", "movetoworkspace", "5,address:0xbbb"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xbbb"],
+    ]
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {"1": ["0xaaa", "0xccc"]}
+    assert storage["peek"] == {**PEEK, "index": 1}
+    assert storage["history"] == []
+    assert watchers == ["0xbbb"]
+
+
+def test_peek_target_follows_monitor_offset_scale_and_gaps(monkeypatch):
+    hyprctl = HyprctlMock(
+        monitors=[[focused_monitor(x=1920, width=3840, height=2160, scale=2, reserved=[0, 0, 0, 30])]],
+        options={
+            "general:gaps_out": {"css": "5 20"},
+            "general:border_size": {"int": 1},
+        },
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.peek_target() == ("5", [1920 + 21, 6, 1920 - 42, 1080 - 30 - 12])
+
+
+def test_peek_restores_floating_window_geometry(state_file, monkeypatch):
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps({"1": ["0xbbb"]}))
+    floating = client("0xbbb")
+    floating.update(floating=True, at=[300, 200], size=[800, 600])
+    hyprctl = HyprctlMock(
+        clients=[[floating], [peek_client("0xbbb")]],
+        monitors=[[focused_monitor()]],
+        options=OMARCHY_OPTIONS,
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+    monkeypatch.setattr(minimizer, "spawn_peek_watcher", lambda address: None)
+
+    assert minimizer.peek_address("0xbbb")
+    assert ["hyprctl", "dispatch", "setfloating", "address:0xbbb"] not in hyprctl.commands
+    assert json.loads(state_file.read_text())["peek"]["geometry"] == [300, 200, 800, 600]
+
+    assert minimizer.end_peek() == "0xbbb"
+    assert hyprctl.commands[-3:] == [
+        ["hyprctl", "dispatch", "movetoworkspacesilent", "special:minimized,address:0xbbb"],
+        ["hyprctl", "dispatch", "resizewindowpixel", "exact 800 600,address:0xbbb"],
+        ["hyprctl", "dispatch", "movewindowpixel", "exact 300 200,address:0xbbb"],
+    ]
+
+
+def test_stash_on_peeked_window_minimizes_it_back_into_place(state_file, monkeypatch):
+    write_peek(state_file, {"1": ["0xaaa"]}, PEEK)
+    hyprctl = HyprctlMock(
+        active_windows=[{"address": "0xbbb", "workspace": {"id": 5}}],
+        clients=[[client("0xaaa"), peek_client("0xbbb")]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspacesilent", "special:minimized,address:0xbbb"],
+        ["hyprctl", "dispatch", "settiled", "address:0xbbb"],
+    ]
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {"1": ["0xbbb", "0xaaa"]}
+    assert storage["peek"] is None
+    assert storage["history"] == []
+
+
+def test_stash_on_other_window_ends_peek_and_minimizes_it(state_file, monkeypatch):
+    write_peek(state_file, {}, {**PEEK, "floating": True})
+    hyprctl = HyprctlMock(
+        active_windows=[{"address": "0xddd", "workspace": {"id": 5}}],
+        clients=[[peek_client("0xbbb")]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspacesilent", "special:minimized,address:0xbbb"],
+        ["hyprctl", "dispatch", "movetoworkspacesilent", "special:minimized,address:0xddd"],
+    ]
+    assert read_state(state_file) == {"1": ["0xbbb"], "5": ["0xddd"]}
+
+
+def test_lua_end_peek_hides_then_retiles(state_file, monkeypatch):
+    monkeypatch.setattr(minimizer, "_LUA_DISPATCH", True)
+    write_peek(state_file, {}, PEEK)
+    hyprctl = HyprctlMock(clients=[[peek_client("0xbbb")]])
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.end_peek() == "0xbbb"
+
+    assert hyprctl.commands[1:] == [
+        [
+            "hyprctl",
+            "dispatch",
+            "hl.dsp.window.move({ workspace = 'special:minimized', follow = false, window = 'address:0xbbb' })",
+        ],
+        [
+            "hyprctl",
+            "dispatch",
+            "hl.dsp.window.float({ action = 'disable', window = 'address:0xbbb' })",
+        ],
+    ]
+
+
+def test_end_peek_keeps_window_moved_elsewhere_by_hand(state_file, monkeypatch):
+    write_peek(state_file, {}, {**PEEK, "floating": True})
+    hyprctl = HyprctlMock(clients=[[peek_client("0xbbb", workspace_id=7)]])
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.end_peek() is None
+
+    assert hyprctl.commands == [["hyprctl", "-j", "clients"]]
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {}
+    assert storage["peek"] is None
+
+
+def test_end_peek_forgets_closed_window(state_file, monkeypatch):
+    write_peek(state_file, {"1": ["0xaaa"]}, PEEK)
+    hyprctl = HyprctlMock(clients=[[client("0xaaa")]])
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.end_peek() is None
+
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {"1": ["0xaaa"]}
+    assert storage["peek"] is None
+
+
+def test_check_peek_keeps_window_while_its_workspace_is_shown(state_file, monkeypatch):
+    write_peek(state_file, {}, PEEK)
+    hyprctl = HyprctlMock(
+        clients=[[peek_client("0xbbb")]],
+        monitors=[[{"activeWorkspace": {"id": 5}}]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.check_peek("0xbbb")
+    assert json.loads(state_file.read_text())["peek"] == PEEK
+
+
+def test_check_peek_minimizes_window_after_workspace_switch(state_file, monkeypatch):
+    write_peek(state_file, {}, PEEK)
+    hyprctl = HyprctlMock(
+        clients=[[peek_client("0xbbb")], [peek_client("0xbbb")]],
+        monitors=[[{"activeWorkspace": {"id": 6}}]],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert not minimizer.check_peek("0xbbb")
+
+    assert [
+        "hyprctl",
+        "dispatch",
+        "movetoworkspacesilent",
+        "special:minimized,address:0xbbb",
+    ] in hyprctl.commands
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {"1": ["0xbbb"]}
+    assert storage["peek"] is None
+
+
+def test_check_peek_stops_watching_a_replaced_peek(state_file, monkeypatch):
+    write_peek(state_file, {}, PEEK)
+    hyprctl = HyprctlMock()
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert not minimizer.check_peek("0xaaa")
+    assert hyprctl.commands == []
+
+
+def test_save_state_keeps_active_peek(state_file):
+    write_peek(state_file, {}, PEEK)
+
+    minimizer.save_state({"2": ["0xccc"]})
+
+    storage = json.loads(state_file.read_text())
+    assert storage["stacks"] == {"2": ["0xccc"]}
+    assert storage["peek"] == PEEK
+
+
+def test_restore_selection_peeks(monkeypatch):
+    calls = []
+    monkeypatch.setattr(minimizer, "peek_address", lambda address: calls.append(address) or True)
+
+    assert minimizer.restore_selection("peek\t0xaaa", "5") == 0
+    assert calls == ["0xaaa"]
+
+
+def test_watch_peek_rechecks_on_workspace_events(tmp_path, monkeypatch):
+    socket_path = tmp_path / ".socket2.sock"
+    server = minimizer.socket.socket(minimizer.socket.AF_UNIX, minimizer.socket.SOCK_STREAM)
+    server.bind(str(socket_path))
+    server.listen(1)
+    monkeypatch.setattr(minimizer, "hyprland_event_socket", lambda: socket_path)
+    checks = iter([True, False])
+    calls = []
+    monkeypatch.setattr(
+        minimizer, "check_peek", lambda address: calls.append(address) or next(checks)
+    )
+
+    def send_events():
+        connection, _ = server.accept()
+        with connection:
+            # Unrelated events are skipped; a split workspace event triggers the check.
+            connection.sendall(b"activelayout>>kb,German\nworkspa")
+            connection.sendall(b"cev2>>6,6\n")
+
+    sender = threading.Thread(target=send_events)
+    sender.start()
+    minimizer.watch_peek("0xbbb")
+    sender.join()
+    server.close()
+
+    assert calls == ["0xbbb", "0xbbb"]

@@ -11,7 +11,8 @@ import qs.Ui
 //   { "prompt": "...", "selectionFile": "...", "doneFile": "...",
 //     "entries": [{ "address", "name", "detail", "icon", "windowClass", "workspace" }] }
 // Enter writes "origin<TAB><address>" to selectionFile, Shift+Enter writes
-// "here<TAB><address>"; cancelling writes nothing. doneFile is touched last.
+// "here<TAB><address>", "-" writes "peek<TAB><address>"; cancelling writes
+// nothing. doneFile is touched last.
 Item {
   id: root
 
@@ -142,9 +143,9 @@ Item {
     resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
-  function activateIndex(index, here) {
+  function activateIndex(index, target) {
     if (index < 0 || index >= displayModel.count) return
-    root.dismiss((here ? "here" : "origin") + "\t" + displayModel.get(index).address)
+    root.dismiss(target + "\t" + displayModel.get(index).address)
   }
 
   ListModel { id: displayModel }
@@ -202,7 +203,11 @@ Item {
             root.select(1)
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-            root.activateIndex(root.selectedIndex, (event.modifiers & Qt.ShiftModifier) !== 0)
+            root.activateIndex(root.selectedIndex, (event.modifiers & Qt.ShiftModifier) ? "here" : "origin")
+            event.accepted = true
+          } else if (event.text === "-") {
+            // Peek: show the window full-size over this workspace until SUPER+M.
+            root.activateIndex(root.selectedIndex, "peek")
             event.accepted = true
           } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127) {
             root.setFilter(root.filterText + event.text)
@@ -332,7 +337,7 @@ Item {
                 // Shift+click or middle click brings the window here.
                 onClicked: function(mouse) {
                   var here = mouse.button === Qt.MiddleButton || (mouse.modifiers & Qt.ShiftModifier) !== 0
-                  root.activateIndex(row.index, here)
+                  root.activateIndex(row.index, here ? "here" : "origin")
                 }
               }
             }
@@ -354,7 +359,7 @@ Item {
           width: parent.width
           height: root.footerHeight
           textFormat: Text.PlainText
-          text: "Enter  restore to its desktop     Shift+Enter  bring here"
+          text: "Enter  restore to its desktop     Shift+Enter  bring here     -  peek"
           color: root.foreground
           opacity: 0.45
           font.family: root.fontFamily

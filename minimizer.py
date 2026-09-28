@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,18 @@ URL_APP_ICON = "web-browser"
 MAX_UNDO_HISTORY = 5
 PICKER_PLUGIN_ID = "hypr-minimizer.picker"
 PICKER_TIMEOUT_SECONDS = 600
+# Hyprland events after which a peeked window may have gone out of sight.
+PEEK_WATCH_EVENTS = {
+    "workspace",
+    "workspacev2",
+    "focusedmon",
+    "focusedmonv2",
+    "closewindow",
+    "movewindow",
+    "movewindowv2",
+    "monitorremoved",
+    "monitorremovedv2",
+}
 HistoryEntry = dict[str, object]
 
 
@@ -80,6 +93,34 @@ def focus_window(address: str) -> None:
         run_hyprctl("dispatch", f"hl.dsp.focus({{ window = 'address:{address}' }})")
     else:
         run_hyprctl("dispatch", "focuswindow", f"address:{address}")
+
+
+def set_floating(address: str, floating: bool) -> None:
+    if _lua_dispatch_supported():
+        action = "enable" if floating else "disable"
+        run_hyprctl(
+            "dispatch",
+            f"hl.dsp.window.float({{ action = '{action}', window = 'address:{address}' }})",
+        )
+    else:
+        dispatcher = "setfloating" if floating else "settiled"
+        run_hyprctl("dispatch", dispatcher, f"address:{address}")
+
+
+def place_window(address: str, geometry: list[int]) -> None:
+    x, y, width, height = geometry
+    if _lua_dispatch_supported():
+        run_hyprctl(
+            "dispatch",
+            f"hl.dsp.window.resize({{ x = {width}, y = {height}, window = 'address:{address}' }})",
+        )
+        run_hyprctl(
+            "dispatch",
+            f"hl.dsp.window.move({{ x = {x}, y = {y}, window = 'address:{address}' }})",
+        )
+    else:
+        run_hyprctl("dispatch", "resizewindowpixel", f"exact {width} {height},address:{address}")
+        run_hyprctl("dispatch", "movewindowpixel", f"exact {x} {y},address:{address}")
 
 
 def notify(summary: str, body: str) -> None:
@@ -148,6 +189,34 @@ def normalize_history(raw_history: object) -> list[HistoryEntry]:
     return history[-MAX_UNDO_HISTORY:]
 
 
+def normalize_peek(raw_peek: object) -> dict[str, object] | None:
+    if not isinstance(raw_peek, dict):
+        return None
+
+    address = raw_peek.get("address")
+    origin = raw_peek.get("origin")
+    workspace_id = raw_peek.get("workspace")
+    if not isinstance(address, str) or origin is None or workspace_id is None:
+        return None
+
+    index = raw_peek.get("index")
+    geometry = raw_peek.get("geometry")
+    if not (
+        isinstance(geometry, list)
+        and len(geometry) == 4
+        and all(isinstance(value, int) for value in geometry)
+    ):
+        geometry = None
+    return {
+        "address": address,
+        "origin": str(origin),
+        "workspace": str(workspace_id),
+        "index": index if isinstance(index, int) else None,
+        "floating": bool(raw_peek.get("floating")),
+        "geometry": geometry,
+    }
+
+
 def normalize_storage(raw_storage: object) -> dict[str, object]:
     if isinstance(raw_storage, dict) and (
         "stacks" in raw_storage or "history" in raw_storage
@@ -155,11 +224,13 @@ def normalize_storage(raw_storage: object) -> dict[str, object]:
         return {
             "stacks": normalize_state(raw_storage.get("stacks")),
             "history": normalize_history(raw_storage.get("history")),
+            "peek": normalize_peek(raw_storage.get("peek")),
         }
 
     return {
         "stacks": normalize_state(raw_storage),
         "history": [],
+        "peek": None,
     }
 
 
@@ -169,12 +240,12 @@ def load_storage(path: Path | None = None) -> dict[str, object]:
         path = LEGACY_STATE_FILE
 
     if not path.exists():
-        return {"stacks": {}, "history": []}
+        return normalize_storage(None)
 
     try:
         return normalize_storage(read_json(path))
     except (json.JSONDecodeError, OSError):
-        return {"stacks": {}, "history": []}
+        return normalize_storage(None)
 
 
 def load_state(path: Path | None = None) -> dict[str, list[str]]:
@@ -199,10 +270,11 @@ def save_state(
     path: Path | None = None,
     history: list[HistoryEntry] | None = None,
 ) -> None:
+    storage = load_storage(path)
     if history is None:
-        history = load_history(path)
+        history = storage["history"]  # type: ignore[assignment]
 
-    save_storage({"stacks": state, "history": history}, path)
+    save_storage({"stacks": state, "history": history, "peek": storage["peek"]}, path)
 
 
 def push_undo_snapshot(
@@ -249,6 +321,15 @@ def extend_stack(
 ) -> None:
     for address in addresses:
         append_to_stack(state, workspace_id, address)
+
+
+def insert_into_stack(
+    state: dict[str, list[str]], workspace_id: str, address: str, index: int | None
+) -> None:
+    remove_address(state, address)
+    stack = state.setdefault(workspace_id, [])
+    position = len(stack) if index is None else max(0, min(index, len(stack)))
+    stack.insert(position, address)
 
 
 def remove_address(state: dict[str, list[str]], address: str) -> str | None:
@@ -347,6 +428,77 @@ def get_active_workspace_id() -> str:
     return str(active_workspace["id"])
 
 
+def get_monitors() -> list[dict]:
+    monitors = json.loads(run_hyprctl("-j", "monitors").stdout)
+    if not isinstance(monitors, list):
+        return []
+    return [monitor for monitor in monitors if isinstance(monitor, dict)]
+
+
+def visible_workspace_ids() -> set[str]:
+    return {
+        str(monitor["activeWorkspace"].get("id"))
+        for monitor in get_monitors()
+        if isinstance(monitor.get("activeWorkspace"), dict)
+    }
+
+
+def option_values(name: str) -> list[int]:
+    """Read a numeric or CSS-style ("top right bottom left") Hyprland option."""
+    option = json.loads(run_hyprctl("-j", "getoption", name).stdout)
+    if not isinstance(option, dict):
+        return [0]
+    if isinstance(option.get("int"), int):
+        return [option["int"]]
+    raw = str(option.get("css") or option.get("custom") or "0")
+    try:
+        return [int(float(value)) for value in raw.split()] or [0]
+    except ValueError:
+        return [0]
+
+
+def css_sides(values: list[int]) -> tuple[int, int, int, int]:
+    """Expand 1-4 CSS values to (top, right, bottom, left)."""
+    top = values[0]
+    right = values[1] if len(values) > 1 else top
+    bottom = values[2] if len(values) > 2 else top
+    left = values[3] if len(values) > 3 else right
+    return top, right, bottom, left
+
+
+def peek_target() -> tuple[str, list[int]]:
+    """The focused monitor's workspace and the area a lone tiled window takes on it."""
+    monitor = next(
+        (monitor for monitor in get_monitors() if monitor.get("focused")), None
+    )
+    if monitor is None:
+        raise RuntimeError("no focused monitor")
+
+    scale = float(monitor.get("scale") or 1)
+    width = round(monitor["width"] / scale)
+    height = round(monitor["height"] / scale)
+    if int(monitor.get("transform") or 0) % 2:
+        width, height = height, width
+
+    reserved_left, reserved_top, reserved_right, reserved_bottom = (
+        list(monitor.get("reserved") or []) + [0, 0, 0, 0]
+    )[:4]
+    gap_top, gap_right, gap_bottom, gap_left = css_sides(option_values("general:gaps_out"))
+    border = option_values("general:border_size")[0]
+
+    left = reserved_left + gap_left + border
+    top = reserved_top + gap_top + border
+    right = reserved_right + gap_right + border
+    bottom = reserved_bottom + gap_bottom + border
+    geometry = [
+        int(monitor.get("x") or 0) + left,
+        int(monitor.get("y") or 0) + top,
+        width - left - right,
+        height - top - bottom,
+    ]
+    return str(monitor["activeWorkspace"]["id"]), geometry
+
+
 def get_clients() -> list[dict]:
     clients = json.loads(run_hyprctl("-j", "clients").stdout)
     if not isinstance(clients, list):
@@ -378,6 +530,11 @@ def prune_missing(
 def is_minimized(client: dict) -> bool:
     workspace = client.get("workspace")
     return isinstance(workspace, dict) and workspace.get("name") == MINIMIZED_WORKSPACE
+
+
+def client_workspace_id(client: dict) -> str:
+    workspace = client.get("workspace")
+    return str(workspace.get("id")) if isinstance(workspace, dict) else ""
 
 
 def prune_stale(
@@ -485,6 +642,9 @@ def minimized_entries(prune: bool = False) -> list[dict[str, object]]:
 
 def stash() -> None:
     address, workspace_id = get_active_window()
+    if end_peek() == address:
+        # Minimizing a peeked window just hides it again.
+        return
     if not address or not workspace_id:
         return
 
@@ -498,6 +658,7 @@ def stash() -> None:
 
 
 def stash_others() -> None:
+    end_peek()
     active_address, workspace_id = get_active_window()
     if not active_address or not workspace_id:
         return
@@ -530,6 +691,7 @@ def stash_others() -> None:
 
 
 def restore_address(address: str, workspace_id: str | None = None) -> bool:
+    end_peek()
     storage = load_storage()
     state = storage["stacks"]  # type: ignore[assignment]
     history = storage["history"]  # type: ignore[assignment]
@@ -558,7 +720,147 @@ def restore_address(address: str, workspace_id: str | None = None) -> bool:
     return True
 
 
+def peek_address(address: str) -> bool:
+    """Show a minimized window over the current workspace, sized like a lone tiled window."""
+    end_peek()
+    storage = load_storage()
+    state = storage["stacks"]  # type: ignore[assignment]
+    history = storage["history"]  # type: ignore[assignment]
+    clients = clients_by_address()
+    pruned_state = prune_stale(state, clients)
+
+    origin_workspace = workspace_for_address(pruned_state, address)
+    if not origin_workspace:
+        if pruned_state != state:
+            save_state(pruned_state, history=history)
+        return False
+
+    index = pruned_state[origin_workspace].index(address)
+    remove_address(pruned_state, address)
+    workspace_id, geometry = peek_target()
+    client = clients[address]
+    floating = bool(client.get("floating"))
+    original_geometry = None
+    if floating:
+        original_geometry = [*client.get("at", [0, 0]), *client.get("size", [0, 0])]
+
+    # Floating keeps the tiled windows underneath from reflowing. Sizing it
+    # while still hidden makes it appear in place.
+    if not floating:
+        set_floating(address, True)
+    place_window(address, geometry)
+    move_window(address, workspace_id)
+    focus_window(address)
+
+    peek = {
+        "address": address,
+        "origin": origin_workspace,
+        "workspace": workspace_id,
+        "index": index,
+        "floating": floating,
+        "geometry": original_geometry,
+    }
+    save_storage({"stacks": pruned_state, "history": history, "peek": peek})
+    spawn_peek_watcher(address)
+    return True
+
+
+def end_peek() -> str | None:
+    """Minimize the peeked window again; returns its address if it was hidden."""
+    storage = load_storage()
+    peek = storage["peek"]
+    if not isinstance(peek, dict):
+        return None
+
+    state = storage["stacks"]  # type: ignore[assignment]
+    address = str(peek["address"])
+    storage["peek"] = None
+    client = clients_by_address().get(address)
+    if client is None:
+        save_storage(storage)
+        return None
+
+    showing = client_workspace_id(client) == peek["workspace"]
+    if showing:
+        move_window(address, MINIMIZED_WORKSPACE, silent=True)
+    if not peek["floating"]:
+        set_floating(address, False)
+    elif peek["geometry"]:
+        place_window(address, peek["geometry"])  # type: ignore[arg-type]
+
+    # A peeked window moved to another workspace by hand stays there.
+    if showing or is_minimized(client):
+        insert_into_stack(state, str(peek["origin"]), address, peek["index"])  # type: ignore[arg-type]
+    save_storage(storage)
+    return address if showing else None
+
+
+def spawn_peek_watcher(address: str) -> None:
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "watch-peek", address],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def check_peek(address: str) -> bool:
+    """End the peek once its window is out of sight; False when there is nothing left to watch."""
+    peek = load_storage()["peek"]
+    if not isinstance(peek, dict) or peek["address"] != address:
+        return False
+
+    client = clients_by_address().get(address)
+    if (
+        client is not None
+        and client_workspace_id(client) == peek["workspace"]
+        and peek["workspace"] in visible_workspace_ids()
+    ):
+        return True
+
+    end_peek()
+    return False
+
+
+def hyprland_event_socket() -> Path | None:
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not signature:
+        return None
+
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    candidates = [Path("/tmp") / "hypr" / signature / ".socket2.sock"]
+    if runtime_dir:
+        candidates.insert(0, Path(runtime_dir) / "hypr" / signature / ".socket2.sock")
+    return next((path for path in candidates if path.exists()), None)
+
+
+def watch_peek(address: str) -> None:
+    """Re-minimize a peeked window as soon as its workspace is no longer shown."""
+    path = hyprland_event_socket()
+    if path is None:
+        return
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as events:
+        try:
+            events.connect(str(path))
+        except OSError:
+            return
+
+        if not check_peek(address):
+            return
+
+        buffer = b""
+        while chunk := events.recv(4096):
+            buffer += chunk
+            *lines, buffer = buffer.split(b"\n")
+            names = {line.partition(b">>")[0].decode(errors="replace") for line in lines}
+            if names & PEEK_WATCH_EVENTS and not check_peek(address):
+                return
+
+
 def pop() -> None:
+    end_peek()
     workspace_id = get_active_workspace_id()
     storage = load_storage()
     state = storage["stacks"]  # type: ignore[assignment]
@@ -587,6 +889,7 @@ def pop() -> None:
 
 
 def pop_all() -> None:
+    end_peek()
     workspace_id = get_active_workspace_id()
     storage = load_storage()
     state = storage["stacks"]  # type: ignore[assignment]
@@ -609,6 +912,7 @@ def pop_all() -> None:
 
 
 def undo() -> None:
+    end_peek()
     workspace_id = get_active_workspace_id()
     storage = load_storage()
     state = storage["stacks"]  # type: ignore[assignment]
@@ -754,7 +1058,7 @@ def shell_picker_selection(entries: list[dict[str, object]]) -> str | None:
 
 
 def restore_selection(selection: str, current_workspace_id: str) -> int:
-    """Apply a picker result: "origin<TAB>address" or "here<TAB>address"."""
+    """Apply a picker result: "origin<TAB>address", "here<TAB>address" or "peek<TAB>address"."""
     if not selection:
         return 0
 
@@ -762,11 +1066,15 @@ def restore_selection(selection: str, current_workspace_id: str) -> int:
     if not address:
         return 1
 
+    if target == "peek":
+        return 0 if peek_address(address) else 1
+
     workspace_id = current_workspace_id if target == "here" else None
     return 0 if restore_address(address, workspace_id) else 1
 
 
 def menu_command() -> int:
+    end_peek()
     entries = minimized_entries(prune=True)
     if not entries:
         notify("Minimized windows", "No minimized windows to restore")
@@ -871,6 +1179,12 @@ def main() -> None:
         help="restore onto the current workspace instead of the original one",
     )
 
+    peek_parser = subparsers.add_parser("peek")
+    peek_parser.add_argument("address")
+
+    watch_parser = subparsers.add_parser("watch-peek")
+    watch_parser.add_argument("address")
+
     args = parser.parse_args()
 
     if args.command == "stash":
@@ -890,6 +1204,10 @@ def main() -> None:
     elif args.command == "restore":
         workspace_id = get_active_workspace_id() if args.here else None
         raise SystemExit(0 if restore_address(args.address, workspace_id) else 1)
+    elif args.command == "peek":
+        raise SystemExit(0 if peek_address(args.address) else 1)
+    elif args.command == "watch-peek":
+        watch_peek(args.address)
     elif args.command == "menu":
         raise SystemExit(menu_command())
 
