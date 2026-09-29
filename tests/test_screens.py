@@ -398,7 +398,11 @@ def test_rendered_lua_unbinds_before_binding():
     assert 'hl.define_submap("hypr-screens-record"' in lua
     assert 'hl.exec_cmd("hypr-screens watch")' in lua
     assert 'hl.exec_cmd("hypr-screens tray")' in lua
+    assert 'hl.on("window.urgent"' in lua
+    assert "focus_on_activate = false" in lua
+    assert 'hl.on("workspace.active"' in lua
     assert "hypr-screens watch" not in keybinds.render(cfg, runtime=True)
+    assert "window.urgent" not in keybinds.render(cfg, runtime=True)
     assert "screens menu" not in lua.lower()
 
 
