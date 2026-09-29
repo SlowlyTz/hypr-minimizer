@@ -65,8 +65,8 @@ class Screens:
         return next((monitor for monitor in self.monitors if monitor.get("focused")), {})
 
 
-def decide_role(cfg: dict, panel_id: str, external_id: str, ids: set[str]) -> str | None:
-    override = load_override()
+def decide_role(cfg: dict, panel_id: str, external_id: str, ids: set[str], swaps: bool = True) -> str | None:
+    override = load_override() if swaps else {}
     if override.get("external") == external_id and override.get("role") in ("panel", "external"):
         return override["role"]
     panel = config.active_value(cfg, panel_id, "one_desktop", ids)
@@ -223,7 +223,11 @@ def swap(cfg: dict, want: str | None = None) -> Screens:
                 f"hl.dsp.workspace.swap_monitors({{ monitor1 = {hypr.lua_string(screens.panel)}, "
                 f"monitor2 = {hypr.lua_string(screens.external)} }})"
             )
-        save_override(screens.external_id, want)
+        ids = set(config.connected(screens.monitors))
+        if want == decide_role(cfg, screens.panel_id, screens.external_id, ids, swaps=False):
+            clear_override()  # back to what the settings say
+        else:
+            save_override(screens.external_id, want)
         screens.role = want
     arrange(resolve_names(screens), docking=screens.role is not None)
     return screens
@@ -291,13 +295,16 @@ def cycle(direction: int) -> None:
 
 def status(cfg: dict) -> dict:
     screens = resolve(cfg)
-    override = load_override()
+    swapped = False
+    if screens.external_id and load_override().get("external") == screens.external_id:
+        ids = set(config.connected(screens.monitors))
+        swapped = screens.role != decide_role(cfg, screens.panel_id, screens.external_id, ids, swaps=False)
     return {
         "panel": screens.panel or None,
         "external": screens.external or None,
         "panel_id": screens.panel_id or None,
         "external_id": screens.external_id or None,
         "fixed": screens.role,
-        "swapped": bool(screens.external_id and override.get("external") == screens.external_id),
+        "swapped": swapped,
         "fixed_workspace": FIXED_WS,
     }

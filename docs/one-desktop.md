@@ -11,9 +11,9 @@ Only for **one** external monitor. Without one, everything is normal Hyprland.
 
 In this order:
 
-1. **Swap** (`s` in the Screens menu or `hypr-screens swap`), until you unplug
+1. **Swap** (tray right-click, *Ein Desktop → Jetzt tauschen* in the window, or `hypr-screens swap`), until you unplug
 2. the **One desktop** setting of a screen (laptop wins if both say yes)
-3. the default for new screens (`Tab` in the Screens menu): off · external screen · laptop
+3. the default for new screens (window → *Ein Desktop → Bei neuen Monitoren*): off · external screen · laptop
 
 Example: laptop fixed only at the desk dock, any other monitor fixed itself:
 
@@ -34,7 +34,7 @@ hypr-screens option default_fixed external
 
 ## Needed for it
 
-- "Desktop keys" on (wizard, or `hypr-screens option desktop_keys on`)
+- "Desktop keys" on (window → *Ein Desktop → Desktop-Tasten*, or `hypr-screens option desktop_keys on`)
 - Omarchy bar: the `hypr-screens.workspaces` widget (the wizard sets it)
 
 ```bash

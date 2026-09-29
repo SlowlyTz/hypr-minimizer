@@ -1,7 +1,11 @@
 # Install
 
-**Needs:** Hyprland ≥ 0.56 (Lua config), Python ≥ 3.10.
-**Nice to have:** Omarchy (menus with icons, bar widget).
+**Needs:** Hyprland ≥ 0.56 (Lua config), Python ≥ 3.10, GTK 4 + libadwaita + PyGObject (settings window).
+**Nice to have:** Omarchy (window menu with icons, bar widget).
+
+```bash
+sudo pacman -S python-gobject libadwaita   # Arch, if missing
+```
 
 ## 1. Get it and run the installer
 
@@ -21,17 +25,17 @@ The installer:
      ```lua
      require("hypr.hypr_screens")
      ```
-   - sets up the Omarchy menus and, if you want, the bar widget
-   - starts the background watcher
+   - sets up the Omarchy window menu and, if you want, the bar widget
+   - starts the background watcher and the **tray icon** (both also start with Hyprland from then on)
 
-No monitor settings in the wizard. Those come later, in the Screens menu.
+No monitor settings in the wizard. Those come later, in the settings window (tray icon).
 
 ## 2. Check it
 
 ```bash
 hypr-screens list          # your screens
 hyprctl configerrors       # should print nothing
-pgrep -af "hypr-screens watch"
+pgrep -af "hypr-screens (watch|tray)"
 ```
 
 ## Run the wizard again
@@ -48,7 +52,7 @@ It also starts by itself the first time you run either command in a terminal.
 sed -i '/hypr.hypr_screens/d' ~/.config/hypr/hyprland.lua
 rm ~/.config/hypr/hypr_screens.lua ~/.local/bin/hypr-minimizer ~/.local/bin/hypr-screens
 rm -r ~/.config/hypr-screens
-omarchy plugin disable hypr-minimizer.picker; omarchy plugin disable hypr-screens.menu
+omarchy plugin disable hypr-minimizer.picker
 hyprctl reload
 ```
 

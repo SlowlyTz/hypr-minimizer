@@ -23,7 +23,6 @@ SETTING_KEYS = ["rotation", "scale", "mode", "position", "one_desktop"]
 # (key, label, command) -- two keys each, see DEFAULT_KEYBINDS.
 ACTIONS = [
     ("minimizer_menu", "Minimizer menu", "hypr-minimizer menu"),
-    ("screens_menu", "Screens menu", "hypr-screens menu"),
     ("stash", "Minimize window", "hypr-minimizer stash"),
     ("stash_others", "Minimize other windows", "hypr-minimizer stash_others"),
     ("pop", "Restore last minimized", "hypr-minimizer pop"),
@@ -32,7 +31,6 @@ ACTIONS = [
 ]
 DEFAULT_KEYBINDS = {
     "minimizer_menu": ["SUPER + PERIOD", ""],
-    "screens_menu": ["SUPER + SHIFT + PERIOD", ""],
     "stash": ["SUPER + M", ""],
     "stash_others": ["", ""],
     "pop": ["SUPER + I", ""],

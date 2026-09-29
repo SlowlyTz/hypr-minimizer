@@ -1,6 +1,6 @@
 # Daily cheat sheet
 
-Default keys. Yours may differ: see them with `hypr-screens state | jq .keybinds` or in the Screens menu (`Tab`).
+Default keys. Yours may differ: see them in the settings window (tray icon → Tasten) or with `hypr-screens state | jq .keybinds`.
 
 ## Windows
 
@@ -18,10 +18,9 @@ In the window menu: `Enter` back to its desktop · `Shift+Enter` here · `-` pee
 
 | Key | Does |
 |---|---|
-| `SUPER + SHIFT + .` | Screens menu |
+| tray icon (click) | settings window |
+| tray icon (right-click) | swap the fixed screen, quit |
 | `SUPER + Y` | move window to the other screen (Hyprland, not ours) |
-
-In the Screens menu: `Enter` settings · `←→` change · `c` condition · `f` favorite · `s` swap the fixed screen · `Tab` keys · `Esc` back/close.
 
 ## Desktops (if "one desktop" is on)
 
@@ -40,6 +39,7 @@ hypr-screens set Laptop rotation 180           # set a value (unset = remove)
 hypr-screens when Laptop rotation "HP 32f"     # only while HP 32f is connected
 hypr-screens when Laptop rotation always
 hypr-screens swap                              # swap the fixed screen until unplugged
+hypr-screens settings                          # open the settings window
 hypr-screens apply                             # apply everything now
 hypr-minimizer list                            # minimized windows
 ```

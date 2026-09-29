@@ -1,11 +1,7 @@
 """Command line entry point of hypr-screens."""
 import argparse
 import json
-import shutil
-import subprocess
 import sys
-
-MENU_PLUGIN_ID = "hypr-screens.menu"
 
 
 def print_state(cfg: dict | None = None, message: str = "") -> None:
@@ -30,19 +26,13 @@ def change(mutate) -> int:
     return 0
 
 
-def open_menu() -> int:
-    from hypr_screens import engine
-
-    shell = shutil.which("omarchy-shell")
-    if not shell:
-        print("hypr-screens: the menu needs omarchy-shell; see `hypr-screens --help`", file=sys.stderr)
+def gui(tray: bool) -> int:
+    try:
+        from hypr_screens.gui import app
+    except (ImportError, ValueError) as error:
+        print(f"hypr-screens: the settings window needs GTK 4, libadwaita and PyGObject ({error})", file=sys.stderr)
         return 1
-    payload = json.dumps({"command": engine.command_prefix()})
-    result = subprocess.run([shell, "shell", "summon", MENU_PLUGIN_ID, payload], text=True, capture_output=True)
-    if result.stdout.strip() != "ok":
-        print(f"hypr-screens: menu plugin not available ({result.stdout.strip() or result.stderr.strip()})", file=sys.stderr)
-        return 1
-    return 0
+    return app.run(tray)
 
 
 def parse_value(key: str, raw: str) -> object:
@@ -82,7 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Per-monitor settings and one fixed screen for Hyprland.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("menu", help="open the screens menu")
+    sub.add_parser("settings", help="open the settings window")
+    sub.add_parser("tray", help="tray icon (started by the generated Lua file)")
     sub.add_parser("setup", help="run the setup wizard")
     sub.add_parser("watch", help="background watcher (started by the generated Lua file)")
     sub.add_parser("apply", help="apply all settings now")
@@ -113,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     swap = sub.add_parser("swap", help="swap the fixed screen until unplugged")
     swap.add_argument("role", nargs="?", choices=["panel", "external"])
 
-    bind = sub.add_parser("bind", help="set a key: `bind screens_menu 1 \"SUPER + SHIFT + PERIOD\"`")
+    bind = sub.add_parser("bind", help="set a key: `bind stash 1 \"SUPER + M\"`")
     bind.add_argument("action")
     bind.add_argument("slot", type=int, choices=[1, 2])
     bind.add_argument("combo", nargs="?", default="", help="empty to clear")
@@ -163,15 +154,15 @@ def run(args: argparse.Namespace) -> int:
         from hypr_screens import setup
 
         return setup.run()
-    if not config.exists() and sys.stdin.isatty() and command in ("menu", "apply", "list", "state"):
+    if not config.exists() and sys.stdin.isatty() and command in ("settings", "apply", "list", "state"):
         from hypr_screens import setup
 
         setup.run()
-        if command != "menu":
+        if command != "settings":
             return 0
 
-    if command == "menu":
-        return open_menu()
+    if command in ("settings", "tray"):
+        return gui(tray=command == "tray")
     if command == "watch":
         from hypr_screens import watch
 

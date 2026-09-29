@@ -10,9 +10,10 @@ BIN = Path.home() / ".local" / "bin"
 LAUNCHERS = {"hypr-minimizer": REPO / "minimizer.py", "hypr-screens": REPO / "hypr-screens"}
 PLUGINS = {
     "hypr-minimizer.picker": REPO / "omarchy-plugin",
-    "hypr-screens.menu": REPO / "omarchy-screens",
     "hypr-screens.workspaces": REPO / "omarchy-workspaces",
 }
+# Replaced by the settings window; removed on setup.
+RETIRED_PLUGINS = ["hypr-screens.menu"]
 WORKSPACES_WIDGET = "hypr-screens.workspaces"
 
 
@@ -65,6 +66,40 @@ def install_plugins(ids: list[str]) -> dict[str, str]:
         else:
             results[plugin] += "; enable failed"
     return results
+
+
+def remove_retired_plugins() -> list[str]:
+    removed = []
+    for plugin in RETIRED_PLUGINS:
+        link_path = plugins_dir() / plugin
+        if link_path.is_symlink():
+            subprocess.run(["omarchy", "plugin", "disable", plugin], capture_output=True, text=True)
+            link_path.unlink()
+            removed.append(plugin)
+    return removed
+
+
+def gui_available() -> str:
+    """"" when the settings window can run, else what is missing."""
+    try:
+        import gi
+
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gtk  # noqa: F401
+    except (ImportError, ValueError) as error:
+        return str(error)
+    return ""
+
+
+def start_tray() -> None:
+    subprocess.Popen(
+        [str(LAUNCHERS["hypr-screens"]), "tray"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def use_bar_widget() -> str:

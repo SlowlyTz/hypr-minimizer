@@ -293,6 +293,17 @@ def test_swap_trades_the_screens_and_remembers_it(fake):
     assert desktops.load_override() == {"external": HP_ID, "role": "external"}
 
 
+def test_swapping_back_forgets_the_swap(fake):
+    fake(laptop(workspace=99), hp(workspace=1, focused=True))
+    cfg = recorded(laptop(), hp())
+    config.set_setting(cfg, LAPTOP_ID, "one_desktop", True)
+    desktops.swap(cfg)
+    assert desktops.status(cfg)["swapped"] is False or desktops.load_override()
+    desktops.swap(cfg, "panel")
+    assert desktops.load_override() == {}
+    assert desktops.status(cfg)["swapped"] is False
+
+
 def test_undock_folds_the_fixed_workspace_into_the_laptops_desktop(fake):
     hyprland = fake(
         laptop(workspace=3, focused=True),
@@ -386,7 +397,9 @@ def test_rendered_lua_unbinds_before_binding():
     assert 'hl.unbind("SUPER + 3")' in lua
     assert 'hl.define_submap("hypr-screens-record"' in lua
     assert 'hl.exec_cmd("hypr-screens watch")' in lua
+    assert 'hl.exec_cmd("hypr-screens tray")' in lua
     assert "hypr-screens watch" not in keybinds.render(cfg, runtime=True)
+    assert "screens menu" not in lua.lower()
 
 
 def test_add_require_appends_once_and_keeps_a_backup(tmp_path):

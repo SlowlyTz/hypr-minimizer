@@ -13,7 +13,8 @@ INTRO = """
     monitor is connected.
   • One desktop: with an external monitor, one screen keeps a single desktop.
 
-  Monitor settings are made later in the Screens menu, not here.
+  Only window keys go on the keyboard. Everything else is set in a window
+  that opens from the tray icon (it starts with Hyprland).
   Enter takes the suggestion in [brackets].
 """
 
@@ -111,8 +112,10 @@ def run() -> int:
             for name, result in install.install_launchers().items():
                 print(f"  {name}: {result}")
     if install.has_omarchy_shell():
-        if yes("Set up the Omarchy menus (window picker, screens menu)?"):
-            plugins = ["hypr-minimizer.picker", "hypr-screens.menu"]
+        for plugin in install.remove_retired_plugins():
+            print(f"  removed old {plugin}")
+        if yes("Set up the Omarchy window menu (and bar widget)?"):
+            plugins = ["hypr-minimizer.picker"]
             if cfg["desktop_keys"]:
                 plugins.append(install.WORKSPACES_WIDGET)
             for plugin, result in install.install_plugins(plugins).items():
@@ -120,15 +123,21 @@ def run() -> int:
             if cfg["desktop_keys"] and yes("Show the fixed screen in the bar (replaces the workspaces widget)?"):
                 print(f"  bar: {install.use_bar_widget()}")
     else:
-        print("  No omarchy-shell: menus are not available; everything works from the command line.")
+        print("  No omarchy-shell: no window menu; everything else works.")
+    missing = install.gui_available()
+    if missing:
+        print(f"  ! The settings window needs GTK 4 + libadwaita + PyGObject ({missing}).")
+        print("    Arch: sudo pacman -S python-gobject libadwaita")
 
     if keybinds.is_required():
         hypr.hyprctl("reload")
     install.start_watcher()
+    if not missing:
+        install.start_tray()
 
     keys = cfg["keybinds"]
     print("\n  Done.")
-    print(f"  Screens menu:   {' | '.join(k for k in keys['screens_menu'] if k) or '(no key)'}")
-    print(f"  Windows menu:   {' | '.join(k for k in keys['minimizer_menu'] if k) or '(no key)'}")
+    print("  Settings:       tray icon (or: hypr-screens settings)")
+    print(f"  Window menu:    {' | '.join(k for k in keys['minimizer_menu'] if k) or '(no key)'}")
     print("  Again later:    hypr-screens setup\n")
     return 0

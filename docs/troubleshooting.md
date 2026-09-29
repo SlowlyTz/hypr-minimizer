@@ -21,7 +21,19 @@ hyprctl configerrors
 hypr-screens setup                                  # rewrites the Lua file
 ```
 
-## A menu opens with the old look / a new key in the menu does nothing
+## No tray icon
+
+```bash
+pgrep -af "hypr-screens tray" || (hypr-screens tray &)
+```
+
+Omarchy: the tray is folded behind the `<` in the bar. The window needs GTK 4 + libadwaita + PyGObject:
+
+```bash
+python3 -c 'import gi; gi.require_version("Gtk","4.0"); gi.require_version("Adw","1")' && echo ok
+```
+
+## The window menu opens with the old look
 
 The shell caches the menus:
 
