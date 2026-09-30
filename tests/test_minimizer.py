@@ -32,13 +32,19 @@ class HyprctlMock:
         if args == ["hyprctl", "-j", "activewindow"]:
             return Mock(stdout=json.dumps(self.active_windows.pop(0)))
 
-        if args == ["hyprctl", "-j", "activeworkspace"]:
-            return Mock(stdout=json.dumps(self.active_workspaces.pop(0)))
 
         if args == ["hyprctl", "-j", "clients"]:
             return Mock(stdout=json.dumps(self.clients.pop(0)))
 
         if args == ["hyprctl", "-j", "monitors"]:
+            if not self.monitors:
+                # The focused monitor showing the next of active_workspaces.
+                workspace = self.active_workspaces.pop(0)
+                return Mock(stdout=json.dumps([{
+                    "focused": True,
+                    "activeWorkspace": {"name": str(workspace["id"]), **workspace},
+                    "specialWorkspace": {"id": 0, "name": ""},
+                }]))
             return Mock(stdout=json.dumps(self.monitors.pop(0)))
 
         if args == ["hyprctl", "-j", "animations"]:
@@ -146,6 +152,53 @@ def test_stash_records_windows_in_lifo_order_per_workspace(state_file, monkeypat
     ]
 
 
+def test_scratchpad_window_is_minimized_and_popped_back_into_the_scratchpad(
+    state_file, monkeypatch
+):
+    scratchpad = {"id": -97, "name": "special:scratchpad"}
+    hyprctl = HyprctlMock(
+        active_windows=[{"address": "0xaaa", "workspace": scratchpad}],
+        clients=[[client("0xaaa")]],
+        monitors=[
+            [
+                {"focused": False, "activeWorkspace": {"id": 99, "name": "99"}},
+                {
+                    "focused": True,
+                    "activeWorkspace": {"id": 2, "name": "2"},
+                    "specialWorkspace": scratchpad,
+                },
+            ]
+        ],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    minimizer.stash()
+    assert read_state(state_file) == {"special:scratchpad": ["0xaaa"]}
+
+    minimizer.pop()
+
+    assert read_state(state_file) == {}
+    assert hyprctl.commands[-2:] == [
+        ["hyprctl", "dispatch", "movetoworkspace", "special:scratchpad,address:0xaaa"],
+        ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
+    ]
+
+
+def test_open_scratchpad_is_the_current_workspace_but_minimized_is_not(monkeypatch):
+    hyprctl = HyprctlMock(
+        monitors=[
+            [{"focused": True, "activeWorkspace": {"id": 2, "name": "2"},
+              "specialWorkspace": {"id": -97, "name": "special:scratchpad"}}],
+            [{"focused": True, "activeWorkspace": {"id": 2, "name": "2"},
+              "specialWorkspace": {"id": -98, "name": "special:minimized"}}],
+        ],
+    )
+    monkeypatch.setattr(minimizer.subprocess, "run", hyprctl)
+
+    assert minimizer.get_active_workspace_id() == "special:scratchpad"
+    assert minimizer.get_active_workspace_id() == "2"
+
+
 def test_stash_deduplicates_existing_window(state_file, monkeypatch):
     state_file.parent.mkdir(parents=True)
     state_file.write_text(json.dumps({"1": ["0xaaa", "0xbbb"]}))
@@ -178,7 +231,7 @@ def test_undo_restores_last_stash(state_file, monkeypatch):
             "movetoworkspacesilent",
             "special:minimized,address:0xaaa",
         ],
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
@@ -198,7 +251,7 @@ def test_pop_uses_lifo_order_for_current_workspace_only(state_file, monkeypatch)
 
     assert read_state(state_file) == {"1": ["0xaaa"], "2": ["0xccc"]}
     assert hyprctl.commands == [
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xbbb"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xbbb"],
@@ -238,11 +291,11 @@ def test_undo_re_minimizes_last_pop(state_file, monkeypatch):
     assert read_state(state_file) == {"1": ["0xaaa"]}
     assert read_history(state_file) == []
     assert hyprctl.commands == [
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         [
             "hyprctl",
@@ -304,7 +357,7 @@ def test_pop_does_not_cross_workspace_boundaries(state_file, monkeypatch):
 
     assert read_state(state_file) == {"1": ["0xaaa"], "2": ["0xccc"]}
     assert hyprctl.commands == [
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
     ]
 
@@ -331,7 +384,7 @@ def test_pop_all_restores_only_current_workspace_in_lifo_order(state_file, monke
 
     assert read_state(state_file) == {"2": ["0xccc"]}
     assert hyprctl.commands == [
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xddd"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xbbb"],
@@ -429,7 +482,7 @@ def test_undo_only_consumes_history_for_current_workspace(state_file, monkeypatc
             "movetoworkspacesilent",
             "special:minimized,address:0xbbb",
         ],
-        ["hyprctl", "-j", "activeworkspace"],
+        ["hyprctl", "-j", "monitors"],
         ["hyprctl", "-j", "clients"],
         ["hyprctl", "dispatch", "movetoworkspace", "1,address:0xaaa"],
         ["hyprctl", "dispatch", "focuswindow", "address:0xaaa"],

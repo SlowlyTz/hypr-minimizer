@@ -35,6 +35,10 @@ Keyboard only (the mouse does nothing inside it; clicking outside closes it).
 - `SUPER + M` slides it out again. Switching desktop hides it too.
 - It goes back to its old place in the list.
 
+## Scratchpad
+
+While the scratchpad (`SUPER + S`) is open, it counts as the current desktop: `SUPER + M` there minimizes into its own list, `SUPER + I` and `Enter` in the window menu put the window back into the scratchpad, and `Shift+Enter` brings any window into it. If minimizing empties the scratchpad, Hyprland closes it — open it again with `SUPER + S` and press `SUPER + I`. The menu shows these windows as `ws scratchpad`.
+
 ## Apps that ask to be shown
 
 Starting an app again from the launcher (`SUPER + SPACE`) when it already runs brings its window **to this desktop** — also when it is minimized or on another desktop. Hyprland would otherwise switch to its desktop, or open `special:minimized` and show every minimized window. Same for notifications and links that bring an app forward. Set up by `~/.config/hypr/hypr_screens.lua`.

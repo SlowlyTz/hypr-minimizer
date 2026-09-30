@@ -34,6 +34,8 @@ PEEK_WATCH_EVENTS = {
     "movewindowv2",
     "monitorremoved",
     "monitorremovedv2",
+    "activespecial",
+    "activespecialv2",
 }
 HistoryEntry = dict[str, object]
 
@@ -463,17 +465,48 @@ def read_desktop_entry(path: Path) -> dict[str, str]:
     return entry
 
 
+def workspace_key(workspace: object) -> str:
+    """Stacks are keyed by workspace id, special workspaces (the scratchpad) by
+    name: special ids are not stable, and moving a window takes the name."""
+    if not isinstance(workspace, dict):
+        return ""
+    name = str(workspace.get("name") or "")
+    if name.startswith("special:"):
+        return name
+    return str(workspace.get("id", ""))
+
+
+def monitor_workspace_keys(monitor: dict) -> list[str]:
+    """What a monitor shows, topmost first: an open special workspace (the
+    scratchpad) covers the desktop underneath."""
+    keys = []
+    special = monitor.get("specialWorkspace")
+    if (
+        isinstance(special, dict)
+        and str(special.get("name") or "").startswith("special:")
+        and special.get("name") != MINIMIZED_WORKSPACE
+    ):
+        keys.append(workspace_key(special))
+    if isinstance(monitor.get("activeWorkspace"), dict):
+        keys.append(workspace_key(monitor["activeWorkspace"]))
+    return keys
+
+
 def get_active_window() -> tuple[str, str]:
     active_window = json.loads(run_hyprctl("-j", "activewindow").stdout)
     address = active_window.get("address", "")
-    workspace = active_window.get("workspace", {})
-    workspace_id = str(workspace.get("id", "")) if isinstance(workspace, dict) else ""
-    return address, workspace_id
+    return address, workspace_key(active_window.get("workspace"))
 
 
 def get_active_workspace_id() -> str:
-    active_workspace = json.loads(run_hyprctl("-j", "activeworkspace").stdout)
-    return str(active_workspace["id"])
+    """The focused monitor's workspace, or the scratchpad while it is open there."""
+    monitor = next(
+        (monitor for monitor in get_monitors() if monitor.get("focused")), None
+    )
+    keys = monitor_workspace_keys(monitor) if monitor else []
+    if not keys:
+        raise RuntimeError("no focused monitor")
+    return keys[0]
 
 
 def get_monitors() -> list[dict]:
@@ -484,11 +517,7 @@ def get_monitors() -> list[dict]:
 
 
 def visible_workspace_ids() -> set[str]:
-    return {
-        str(monitor["activeWorkspace"].get("id"))
-        for monitor in get_monitors()
-        if isinstance(monitor.get("activeWorkspace"), dict)
-    }
+    return {key for monitor in get_monitors() for key in monitor_workspace_keys(monitor)}
 
 
 def option_values(name: str) -> list[int]:
@@ -555,7 +584,7 @@ def peek_target() -> tuple[str, list[int], int]:
         width - left - right,
         height - top - bottom,
     ]
-    return str(monitor["activeWorkspace"]["id"]), geometry, monitor_bottom(monitor)
+    return monitor_workspace_keys(monitor)[0], geometry, monitor_bottom(monitor)
 
 
 def get_clients() -> list[dict]:
@@ -592,8 +621,7 @@ def is_minimized(client: dict) -> bool:
 
 
 def client_workspace_id(client: dict) -> str:
-    workspace = client.get("workspace")
-    return str(workspace.get("id")) if isinstance(workspace, dict) else ""
+    return workspace_key(client.get("workspace"))
 
 
 def prune_stale(
@@ -725,11 +753,9 @@ def stash_others() -> None:
     addresses: list[str] = []
     for client in get_clients():
         address = client.get("address")
-        client_workspace = client.get("workspace", {})
-        if not isinstance(address, str) or not isinstance(client_workspace, dict):
+        if not isinstance(address, str):
             continue
-        client_workspace_id = str(client_workspace.get("id"))
-        if address != active_address and client_workspace_id == workspace_id:
+        if address != active_address and client_workspace_id(client) == workspace_id:
             addresses.append(address)
 
     if not addresses:
@@ -869,8 +895,7 @@ def slide_out(address: str, client: dict) -> None:
         (
             monitor
             for monitor in get_monitors()
-            if isinstance(monitor.get("activeWorkspace"), dict)
-            and str(monitor["activeWorkspace"].get("id")) == workspace_id
+            if workspace_id in monitor_workspace_keys(monitor)
         ),
         None,
     )
@@ -1076,17 +1101,22 @@ def print_list(as_json: bool) -> None:
         )
 
 
+def workspace_label(workspace_id: object) -> str:
+    """"scratchpad" for special:scratchpad, the number for a desktop."""
+    return str(workspace_id).removeprefix("special:")
+
+
 def menu_label(entry: dict[str, object], duplicate_app_names: set[str]) -> str:
     app_name = str(entry["app_name"])
-    workspace_label = f"{app_name}  [ws {entry['workspace_id']}]"
+    label = f"{app_name}  [ws {workspace_label(entry['workspace_id'])}]"
     if app_name not in duplicate_app_names:
-        return workspace_label
+        return label
 
     detail = window_title_detail(app_name, str(entry.get("title") or ""))
     if detail:
-        return f"{workspace_label}  {detail}"
+        return f"{label}  {detail}"
 
-    return f"{workspace_label} ({entry['address']})"
+    return f"{label} ({entry['address']})"
 
 
 def sort_menu_entries(
@@ -1110,7 +1140,7 @@ def picker_entry(entry: dict[str, object]) -> dict[str, object]:
         "detail": window_title_detail(app_name, str(entry.get("title") or "")),
         "icon": entry["icon"],
         "windowClass": entry["class"],
-        "workspace": entry["workspace_id"],
+        "workspace": workspace_label(entry["workspace_id"]),
     }
 
 
