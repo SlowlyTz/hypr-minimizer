@@ -1271,7 +1271,7 @@ def menu_command() -> int:
 
     for line, address in selections:
         if selected == line:
-            return 0 if restore_address(address) else 1
+            return 0 if restore_address(address, current_workspace_id) else 1
 
     return 1
 

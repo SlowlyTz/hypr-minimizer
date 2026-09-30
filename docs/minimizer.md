@@ -22,8 +22,8 @@ Keyboard only (the mouse does nothing inside it; clicking outside closes it).
 
 | Key | Does |
 |---|---|
-| `Enter` | back to the desktop it was minimized on |
-| `Shift+Enter` | bring it to this desktop |
+| `Enter` | bring it to this desktop |
+| `Shift+Enter` | back to the desktop it was minimized on |
 | `-` | **peek** |
 | typing | filter; the first match is always selected |
 | `Esc` | clear filter, then close |
@@ -37,7 +37,7 @@ Keyboard only (the mouse does nothing inside it; clicking outside closes it).
 
 ## Scratchpad
 
-While the scratchpad (`SUPER + S`) is open, it counts as the current desktop: `SUPER + M` there minimizes into its own list, `SUPER + I` and `Enter` in the window menu put the window back into the scratchpad, and `Shift+Enter` brings any window into it. If minimizing empties the scratchpad, Hyprland closes it — open it again with `SUPER + S` and press `SUPER + I`. The menu shows these windows as `ws scratchpad`.
+While the scratchpad (`SUPER + S`) is open, it counts as the current desktop: `SUPER + M` there minimizes into its own list, `SUPER + I` puts the window back into the scratchpad, and `Enter` in the window menu brings any window into it. Opened from a desktop, `Enter` brings a scratchpad window to that desktop; `Shift+Enter` sends it back to the scratchpad. If minimizing empties the scratchpad, Hyprland closes it — open it again with `SUPER + S` and press `SUPER + I`. The menu shows these windows as `ws scratchpad`.
 
 ## Apps that ask to be shown
 
@@ -85,4 +85,4 @@ WidgetButton {
 | minimized windows + undo | `$XDG_RUNTIME_DIR/hypr-minimizer/state.json` |
 | menu plugin | `omarchy-plugin/` → `~/.config/omarchy/plugins/hypr-minimizer.picker` |
 
-Without Omarchy the menu falls back to `walker`, `wofi` or `rofi` (only `Enter`).
+Without Omarchy the menu falls back to `walker`, `wofi` or `rofi` (only `Enter`: brings it here).

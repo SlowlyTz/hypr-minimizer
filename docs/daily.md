@@ -12,7 +12,7 @@ Default keys. Yours may differ: see them in the settings window (tray icon → T
 | `SUPER + U` | undo |
 | `SUPER + .` | window menu |
 
-In the window menu: `Enter` back to its desktop · `Shift+Enter` here · `-` peek · type to filter · `Esc` close.
+In the window menu: `Enter` here · `Shift+Enter` back to its desktop · `-` peek · type to filter · `Esc` close.
 
 ## Screens
 

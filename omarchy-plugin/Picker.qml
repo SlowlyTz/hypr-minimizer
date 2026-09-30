@@ -10,8 +10,8 @@ import qs.Ui
 // Summoned by `hypr-minimizer menu` with a JSON payload:
 //   { "prompt": "...", "selectionFile": "...", "doneFile": "...",
 //     "entries": [{ "address", "name", "detail", "icon", "windowClass", "workspace" }] }
-// Enter writes "origin<TAB><address>" to selectionFile, Shift+Enter writes
-// "here<TAB><address>", "-" writes "peek<TAB><address>"; cancelling writes
+// Enter writes "here<TAB><address>" to selectionFile, Shift+Enter writes
+// "origin<TAB><address>", "-" writes "peek<TAB><address>"; cancelling writes
 // nothing. doneFile is touched last.
 //
 // Keyboard only: the mouse neither hovers nor clicks inside the card, so a
@@ -207,7 +207,7 @@ Item {
             root.select(1)
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-            root.activateIndex(root.selectedIndex, (event.modifiers & Qt.ShiftModifier) ? "here" : "origin")
+            root.activateIndex(root.selectedIndex, (event.modifiers & Qt.ShiftModifier) ? "origin" : "here")
             event.accepted = true
           } else if (event.text === "-") {
             // Peek: show the window full-size over this workspace until SUPER+M.
@@ -351,7 +351,7 @@ Item {
           width: parent.width
           height: root.footerHeight
           textFormat: Text.PlainText
-          text: "Enter  restore to its desktop     Shift+Enter  bring here     -  peek"
+          text: "Enter  bring here     Shift+Enter  back to its desktop     -  peek"
           color: root.foreground
           opacity: 0.45
           font.family: root.fontFamily
