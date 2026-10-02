@@ -102,8 +102,14 @@ def samsung_command(args: argparse.Namespace) -> int:
     if args.action == "status":
         print(json.dumps(samsung.status(), indent=2))
         return 0
-    if args.action == "setup":
-        return 0 if samsung.setup(graphical=not sys.stdin.isatty()) else 1
+    if args.action in ("setup", "teardown"):
+        from hypr_screens import install
+
+        work = samsung.setup if args.action == "setup" else samsung.teardown
+        if not work(graphical=not sys.stdin.isatty()):
+            return 1
+        print(f"battery panel: {install.sync_power_panel(samsung.active())}")
+        return 0
     cfg = config.load()
     try:
         if args.action == "limit":
@@ -179,8 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
     power = sub.add_parser("power", help="performance mode, used by the battery panel: list | set MODE")
     power.add_argument("action", choices=["list", "set"])
     power.add_argument("mode", nargs="?")
-    samsung = sub.add_parser("samsung", help="Samsung Galaxy Book: status | setup | limit N | full-once on|off")
-    samsung.add_argument("action", choices=["status", "setup", "limit", "full-once"])
+    samsung = sub.add_parser("samsung",
+                             help="Samsung Galaxy Book: status | setup | teardown | limit N | full-once on|off")
+    samsung.add_argument("action", choices=["status", "setup", "teardown", "limit", "full-once"])
     samsung.add_argument("value", nargs="?")
     return parser
 

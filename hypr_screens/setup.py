@@ -132,10 +132,8 @@ def run() -> int:
         elif yes("Allow changing charge limit, performance mode and the firmware switches? "
                  "(needs your password once)"):
             print("  Done." if samsung.setup() else "  ! Setup failed; try again: hypr-screens samsung setup")
-        if install.has_omarchy_shell() and yes("Use the battery panel with the four Samsung modes in the bar?"):
-            result = install.install_plugins([install.POWER_WIDGET])[install.POWER_WIDGET]
-            print(f"  {install.POWER_WIDGET}: {result}")
-            print(f"  bar: {install.use_bar_widget(install.POWER_WIDGET)}")
+        # The battery panel with the four modes comes with an active Samsung control.
+        print(f"  battery panel: {install.sync_power_panel(samsung.active())}")
     missing = install.gui_available()
     if missing:
         print(f"  ! The settings window needs GTK 4 + libadwaita + PyGObject ({missing}).")

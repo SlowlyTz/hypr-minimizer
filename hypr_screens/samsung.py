@@ -9,7 +9,9 @@ the watcher (`guard_tick`) keeps both on the chosen mode. Pressing the
 keyboard's mode key changes the platform profile directly; that is taken over.
 
 Writing needs root: `setup()` installs a udev rule that hands the few files to
-the user, once, through pkexec or sudo.
+the user, once, through pkexec or sudo; `teardown()` takes it back. Samsung
+control is "active" in between -- only then does the bar get the battery panel
+with the four modes (install.sync_power_panel).
 """
 import getpass
 import json
@@ -348,7 +350,7 @@ def guard() -> None:
     while True:
         try:
             cfg = config.load()
-            if settings(cfg):
+            if settings(cfg) and writable():
                 before = json.dumps(cfg, sort_keys=True)
                 guard_tick(cfg)
                 if json.dumps(cfg, sort_keys=True) != before:
@@ -400,18 +402,57 @@ def setup_script(user: str) -> str:
     ])
 
 
+def teardown_script() -> str:
+    """Undo setup_script: files back to root, power-profiles-daemon on its own."""
+    return "\n".join([
+        f"rm -f {UDEV_RULE} {PPD_DROPIN}",
+        f"rmdir {PPD_DROPIN.parent} 2>/dev/null || true",
+        "chown root /sys/class/power_supply/*/charge_control_end_threshold "
+        "/sys/class/platform-profile/*/profile "
+        f"/sys/class/firmware-attributes/{DRIVER}/attributes/*/current_value 2>/dev/null || true",
+        "udevadm control --reload",
+        "systemctl daemon-reload",
+        "systemctl try-restart power-profiles-daemon",
+        "",
+    ])
+
+
 def is_set_up() -> bool:
     return UDEV_RULE.exists() and PPD_DROPIN.exists() and writable()
 
 
-def setup(graphical: bool = False) -> bool:
-    """Install the udev rule and the power-profiles-daemon drop-in as root:
-    pkexec (password dialog) from the window, sudo from a terminal."""
+def active() -> bool:
+    """Samsung control is on: a Galaxy Book, and the one-time setup is done."""
+    return present() and is_set_up()
+
+
+def run_as_root(text: str, graphical: bool) -> bool:
+    """pkexec (password dialog) from the window, sudo from a terminal."""
     with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as script:
-        script.write(setup_script(getpass.getuser()))
+        script.write(text)
     try:
         elevate = ["pkexec"] if graphical or not shutil.which("sudo") else ["sudo"]
-        done = subprocess.run([*elevate, "/bin/sh", script.name], check=False)
-        return done.returncode == 0
+        return subprocess.run([*elevate, "/bin/sh", script.name], check=False).returncode == 0
     finally:
         os.unlink(script.name)
+
+
+def setup(graphical: bool = False) -> bool:
+    """Install the udev rule and the power-profiles-daemon drop-in as root."""
+    return run_as_root(setup_script(getpass.getuser()), graphical)
+
+
+def teardown(graphical: bool = False) -> bool:
+    """Give everything back to Omarchy: the charge limit returns to what it was
+    if a full charge is running, the app stops holding limit and mode, then the
+    rule and the drop-in go."""
+    cfg = config.load()
+    samsung = cfg.setdefault("samsung", {})
+    battery = battery_dir()
+    if samsung.get("full_once") and battery is not None:
+        write(battery / "charge_control_end_threshold", samsung.get("limit") or 100)
+    if not run_as_root(teardown_script(), graphical):
+        return False
+    cfg["samsung"] = {"limit": None, "mode": None, "full_once": False}
+    config.save(cfg)
+    return True

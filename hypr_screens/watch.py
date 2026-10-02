@@ -12,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from hypr_screens import config, engine, samsung, sound
+from hypr_screens import config, engine, install, samsung, sound
 
 SETTLE_SECONDS = 1.0
 EVENTS = {
@@ -62,6 +62,10 @@ def watch() -> int:
 
     threading.Thread(target=sound.guard, daemon=True).start()
     threading.Thread(target=samsung.guard, daemon=True).start()
+    try:
+        log(f"battery panel: {install.sync_power_panel(samsung.active())}")
+    except Exception as error:  # the bar is a nicety; the watcher must run
+        log(f"battery panel: {error}")
 
     path = event_socket()
     if path is None:

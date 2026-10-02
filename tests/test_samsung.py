@@ -216,3 +216,55 @@ def test_bar_gets_our_power_widget(tmp_path, monkeypatch):
     assert install.use_bar_widget(install.POWER_WIDGET) == "replaced omarchy.power"
     assert json.loads(shell.read_text())["bar"]["layout"]["right"][1]["id"] == "hypr-screens.power"
     assert install.use_bar_widget(install.POWER_WIDGET) == "ok"
+
+
+def test_turning_off_restores_the_limit_and_forgets_the_settings(sysfs, ppd, monkeypatch):
+    cfg = config.default_config()
+    samsung.set_mode(cfg, "quiet")
+    samsung.full_once(cfg, True)
+    config.save(cfg)
+    scripts = []
+    monkeypatch.setattr(samsung, "run_as_root", lambda text, graphical: scripts.append(text) or True)
+
+    assert samsung.teardown()
+    assert battery(sysfs, "charge_control_end_threshold") == "80"
+    assert config.load()["samsung"] == {"limit": None, "mode": None, "full_once": False}
+    assert f"rm -f {samsung.UDEV_RULE} {samsung.PPD_DROPIN}" in scripts[0]
+    assert "systemctl try-restart power-profiles-daemon" in scripts[0]
+
+
+def test_a_cancelled_turn_off_changes_nothing(sysfs, ppd, monkeypatch):
+    cfg = config.default_config()
+    samsung.set_mode(cfg, "quiet")
+    config.save(cfg)
+    monkeypatch.setattr(samsung, "run_as_root", lambda text, graphical: False)
+    assert not samsung.teardown()
+    assert config.load()["samsung"]["mode"] == "quiet"
+
+
+@pytest.fixture()
+def bar(tmp_path, monkeypatch):
+    shell = tmp_path / "shell.json"
+    shell.write_text(json.dumps({"bar": {"layout": {"right": [{"id": "omarchy.clock"}, {"id": "omarchy.power"}]}}}))
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    monkeypatch.setattr(install, "shell_json", lambda: shell)
+    monkeypatch.setattr(install, "plugins_dir", lambda: plugins)
+    monkeypatch.setattr(install, "has_omarchy_shell", lambda: True)
+    monkeypatch.setattr(install.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0))
+    return shell
+
+
+def power_widget(shell: Path) -> str:
+    return json.loads(shell.read_text())["bar"]["layout"]["right"][1]["id"]
+
+
+def test_battery_panel_follows_samsung_control(bar):
+    assert install.sync_power_panel(True) == "replaced omarchy.power"
+    assert power_widget(bar) == "hypr-screens.power"
+    assert (bar.parent / "plugins/hypr-screens.power").resolve() == install.PLUGINS["hypr-screens.power"]
+    assert install.sync_power_panel(True) == "ok"
+
+    assert install.sync_power_panel(False) == "restored omarchy.power"
+    assert power_widget(bar) == "omarchy.power"
+    assert install.sync_power_panel(False) == "ok"

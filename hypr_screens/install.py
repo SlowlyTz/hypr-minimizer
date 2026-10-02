@@ -17,6 +17,7 @@ PLUGINS = {
 RETIRED_PLUGINS = ["hypr-screens.menu"]
 WORKSPACES_WIDGET = "hypr-screens.workspaces"
 POWER_WIDGET = "hypr-screens.power"
+OMARCHY_POWER_WIDGET = "omarchy.power"
 # Bar widgets live in shell.json's bar layout; they are not enabled as plugins.
 BAR_WIDGETS = {WORKSPACES_WIDGET, POWER_WIDGET}
 
@@ -130,6 +131,38 @@ def use_bar_widget(ours: str = WORKSPACES_WIDGET) -> str:
         backup.write_text(path.read_text())
     path.write_text(json.dumps(cfg, indent=2) + "\n")
     return f"replaced {replaced}"
+
+
+def restore_power_widget() -> str:
+    """Put Omarchy's own battery panel back where ours is."""
+    path = shell_json()
+    try:
+        cfg = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return "no shell.json"
+    restored = False
+    for section in ((cfg.get("bar") or {}).get("layout") or {}).values():
+        for widget in section if isinstance(section, list) else []:
+            if isinstance(widget, dict) and widget.get("id") == POWER_WIDGET:
+                widget["id"] = OMARCHY_POWER_WIDGET
+                restored = True
+    if not restored:
+        return "ok"
+    path.write_text(json.dumps(cfg, indent=2) + "\n")
+    return f"restored {OMARCHY_POWER_WIDGET}"
+
+
+def sync_power_panel(active: bool) -> str:
+    """Our battery panel (Samsung's four modes) exactly while Samsung control is
+    active, Omarchy's otherwise. Cheap when nothing changes: runs on every start."""
+    if not has_omarchy_shell():
+        return "no omarchy-shell"
+    if not active:
+        return restore_power_widget()
+    link_path = plugins_dir() / POWER_WIDGET
+    if not (link_path.is_symlink() and link_path.resolve() == PLUGINS[POWER_WIDGET].resolve()):
+        install_plugins([POWER_WIDGET])
+    return use_bar_widget(POWER_WIDGET)
 
 
 def start_watcher() -> None:

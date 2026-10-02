@@ -13,7 +13,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
 
-from hypr_screens import config, samsung  # noqa: E402
+from hypr_screens import config, install, samsung  # noqa: E402
 
 POLL_MS = 2000
 MODE_ICONS = {
@@ -125,6 +125,8 @@ class SamsungPage:
         self.page.append(self.battery_group())
         self.page.append(self.performance_group())
         self.page.append(self.device_group())
+        if state["writable"]:
+            self.page.append(self.control_group())
         self.update()
         GLib.idle_add(self.end_update)
 
@@ -137,7 +139,8 @@ class SamsungPage:
             title="One-time setup",
             description="Changing these settings needs root once: a rule lets your user write the "
                         "few Samsung files, and power-profiles-daemon leaves the performance mode to "
-                        "this app (it keeps tuning the CPU). You will be asked for your password.")
+                        "this app (it keeps tuning the CPU). The battery panel in the bar then gets "
+                        "the four modes. You will be asked for your password.")
         row = Adw.ActionRow(title="Allow changes", subtitle="Until then, everything here is read-only.")
         button = Gtk.Button(label="Set up…", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.run(self.do_setup, "Set up"))
@@ -148,6 +151,24 @@ class SamsungPage:
     def do_setup(self) -> None:
         if not samsung.setup(graphical=True):
             raise RuntimeError("setup was cancelled or failed")
+        install.sync_power_panel(samsung.active())
+
+    def control_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Samsung control")
+        row = Adw.ActionRow(
+            title="Turn off",
+            subtitle="Gives the battery panel and the performance mode back to Omarchy and stops "
+                     "holding the charge limit. Needs your password.")
+        button = Gtk.Button(label="Turn off…", valign=Gtk.Align.CENTER, css_classes=["destructive-action"])
+        button.connect("clicked", lambda _b: self.run(self.do_teardown, "Samsung control off"))
+        row.add_suffix(button)
+        group.add(row)
+        return group
+
+    def do_teardown(self) -> None:
+        if not samsung.teardown(graphical=True):
+            raise RuntimeError("turning off was cancelled or failed")
+        install.sync_power_panel(samsung.active())
 
     def battery_group(self) -> Adw.PreferencesGroup:
         state = self.state

@@ -18,7 +18,7 @@ The mode is set in the window, in the **battery panel** in the bar (four buttons
 
 - Linux has no free fan curve on these laptops; the four modes are what the firmware offers, the same as on Windows.
 - `power-profiles-daemon` only knows three modes, and Omarchy switches it on boot and when the charger goes in or out. So the setup keeps the daemon off the platform profile (it still tunes the CPU), and `hypr-screens watch` keeps the chosen mode. Quiet runs the CPU on *balanced*.
-- The battery panel is Omarchy's own, copied to `omarchy-power/` (`hypr-screens.power`) with the buttons going through `hypr-screens power`. On a laptop that is not a Galaxy Book it shows Omarchy's profiles as before.
+- The battery panel is Omarchy's own, copied to `omarchy-power/` (`hypr-screens.power`) with the buttons going through `hypr-screens power`. It is in the bar only while Samsung control is active (a Galaxy Book, setup done): setting up puts it there, turning off puts Omarchy's back, and `hypr-screens watch` checks it on every start.
 
 ## One-time setup
 
@@ -35,12 +35,14 @@ It installs:
 | `/etc/udev/rules.d/90-hypr-screens-samsung.rules` | hands the charge limit, the platform profile and the firmware switches to your user |
 | `/etc/systemd/system/power-profiles-daemon.service.d/hypr-screens.conf` | starts `power-profiles-daemon --block-driver platform_profile` |
 
-Undo: delete both files, then `sudo systemctl daemon-reload && sudo systemctl restart power-profiles-daemon`.
+**Turn off** (Samsung page, or `hypr-screens samsung teardown`) undoes it: both files go, the files belong to root again, Omarchy gets its battery panel and the performance mode back, and a running full charge ends at the old limit.
 
 ## Commands
 
 ```bash
 hypr-screens samsung status        # everything as JSON
+hypr-screens samsung setup         # turn Samsung control on (password once)
+hypr-screens samsung teardown      # turn it off again
 hypr-screens samsung limit 80      # charge limit
 hypr-screens samsung full-once on  # charge to 100 % once
 hypr-screens power list            # modes, active one marked (used by the battery panel)
