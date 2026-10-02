@@ -11,7 +11,7 @@ reload would reset the monitor settings for a moment.
 import os
 from pathlib import Path
 
-from hypr_screens import config, hypr
+from hypr_screens import config, desktops, hypr
 
 RECORD_SUBMAP = "hypr-screens-record"
 # The settings window (gui/app.py APP_ID, gui/window.py WIDTH x HEIGHT).
@@ -204,6 +204,27 @@ def render(cfg: dict, runtime: bool = False) -> str:
             "-- The settings window floats, sized and centred, from its first frame.",
             f"hl.window_rule({{ match = {{ class = {lua_quote(SETTINGS_CLASS)} }}, "
             f"float = true, size = {{ {SETTINGS_SIZE[0]}, {SETTINGS_SIZE[1]} }}, center = true }})",
+            "",
+            "-- Swiping does nothing on the fixed screen (the one showing desktop "
+            f"{desktops.FIXED_WS}). Hyprland",
+            "-- skips a swipe on a monitor with a single desktop unless it may create new",
+            "-- ones, so that is switched off while the fixed screen has the focus.",
+            'local swipe_creates = hl.get_config("gestures.workspace_swipe_create_new")',
+            "swipe_creates = swipe_creates == true or swipe_creates == 1",
+            "local swipe_blocked = false",
+            "local function guard_swipe()",
+            "  local workspace = hl.get_active_workspace()",
+            f"  local blocked = workspace ~= nil and workspace.id == {desktops.FIXED_WS}",
+            "  if blocked == swipe_blocked then return end",
+            "  swipe_blocked = blocked",
+            "  hl.config({ gestures = { workspace_swipe_create_new = swipe_creates and not blocked } })",
+            "end",
+            "-- The events come before the focus has moved, so look a moment later.",
+            "local function guard_swipe_soon()",
+            '  hl.timer(guard_swipe, { timeout = 1, type = "oneshot" })',
+            "end",
+            'hl.on("monitor.focused", guard_swipe_soon)',
+            'hl.on("workspace.active", guard_swipe_soon)',
             "",
             "-- Watcher: applies monitor settings on hotplug and config reloads.",
             "-- Tray: the icon that opens the settings window.",
