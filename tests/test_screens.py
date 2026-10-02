@@ -401,7 +401,7 @@ def test_rendered_lua_unbinds_before_binding():
     assert 'hl.on("window.urgent"' in lua
     assert "focus_on_activate = false" in lua
     assert 'hl.window_rule({ match = { class = "^(io\\\\.github\\\\.slowlytz\\\\.HyprScreens)$" }, float = true' in lua
-    assert 'hl.on("workspace.active"' in lua
+    assert 'layer.namespace ~= "omarchy-menu"' in lua
     assert "hypr-screens watch" not in keybinds.render(cfg, runtime=True)
     assert "window.urgent" not in keybinds.render(cfg, runtime=True)
     assert "screens menu" not in lua.lower()

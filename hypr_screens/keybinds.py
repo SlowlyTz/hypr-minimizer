@@ -17,6 +17,10 @@ RECORD_SUBMAP = "hypr-screens-record"
 # The settings window (gui/app.py APP_ID, gui/window.py WIDTH x HEIGHT).
 SETTINGS_CLASS = "^(io\\.github\\.slowlytz\\.HyprScreens)$"
 SETTINGS_SIZE = (1000, 720)
+# The Omarchy menu (SUPER+SPACE) and how long after it closes an app asking to
+# be shown counts as started from it: a running app needs a moment to answer.
+LAUNCHER_NAMESPACE = "omarchy-menu"
+LAUNCH_WINDOW_MS = 5000
 REQUIRE_LINE = 'require("hypr.hypr_screens")'
 
 MODIFIERS = {
@@ -208,20 +212,28 @@ def render(cfg: dict, runtime: bool = False) -> str:
             '  hl.exec_cmd("hypr-screens tray")',
             "end)",
             "",
-            "-- An app that asks to be shown (e.g. started again from the launcher) comes",
-            "-- to the current desktop instead of Hyprland switching to its desktop -- or",
-            "-- opening special:minimized and showing every minimized window. We focus it",
-            "-- ourselves (focus_on_activate off) so requests right after a desktop switch",
-            "-- can be ignored: some apps (Electron) ask for focus back when a switch takes",
-            "-- it from them, which would drag them along to the new desktop.",
+            "-- An app started again from the Omarchy menu while it already runs asks to be",
+            "-- shown; it comes to the current desktop instead of Hyprland switching to its",
+            "-- desktop -- or opening special:minimized and showing every minimized window.",
+            "-- Any app can ask that at any time, though (Chromium/Electron apps do on new",
+            "-- messages), so only a request shortly after the menu closed counts; others",
+            "-- are ignored (focus_on_activate off) and nothing moves.",
             "hl.config({ misc = { focus_on_activate = false } })",
-            "local just_switched = false",
-            'hl.on("workspace.active", function()',
-            "  just_switched = true",
-            '  hl.timer(function() just_switched = false end, { timeout = 500, type = "oneshot" })',
+            "local launched, launches = false, 0",
+            'hl.on("layer.closed", function(layer)',
+            f"  if not layer or layer.namespace ~= {lua_quote(LAUNCHER_NAMESPACE)} then return end",
+            "  launches = launches + 1",
+            "  local this = launches",
+            "  launched = true",
+            f"  hl.timer(function() if launches == this then launched = false end end, "
+            f'{{ timeout = {LAUNCH_WINDOW_MS}, type = "oneshot" }})',
             "end)",
+            "-- Switching desktop ends it: Electron apps ask for focus back when a switch",
+            "-- takes it from them, which would drag them along.",
+            'hl.on("workspace.active", function() launched = false end)',
             'hl.on("window.urgent", function(window)',
-            "  if just_switched or not window or not window.mapped then return end",
+            "  if not launched or not window or not window.mapped then return end",
+            "  launched = false  -- one window per launch",
             "  local here = hl.get_active_workspace()",
             "  local there = window.workspace",
             "  if not here or not there then return end",
