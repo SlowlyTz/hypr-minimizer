@@ -636,10 +636,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         return False
 
     def float_centered(self) -> bool:
-        """Hyprland would tile the window; float it, sized, centred on the focused screen."""
+        """Fallback for a Lua file without the window rule (keybinds.render): float
+        it, sized, centred on the focused screen. With the rule it already floats."""
         client = next((c for c in hypr.query_list("clients") if c.get("pid") == os.getpid()), None)
         monitor = next((m for m in hypr.monitors() if m.get("focused")), None)
-        if client is None or monitor is None:
+        if client is None or monitor is None or client.get("floating"):
             return False
         address = client["address"]
         scale = float(monitor.get("scale") or 1)

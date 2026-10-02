@@ -14,6 +14,9 @@ from pathlib import Path
 from hypr_screens import config, hypr
 
 RECORD_SUBMAP = "hypr-screens-record"
+# The settings window (gui/app.py APP_ID, gui/window.py WIDTH x HEIGHT).
+SETTINGS_CLASS = "^(io\\.github\\.slowlytz\\.HyprScreens)$"
+SETTINGS_SIZE = (1000, 720)
 REQUIRE_LINE = 'require("hypr.hypr_screens")'
 
 MODIFIERS = {
@@ -193,6 +196,10 @@ def render(cfg: dict, runtime: bool = False) -> str:
     ]
     if not runtime:
         lines += [
+            "",
+            "-- The settings window floats, sized and centred, from its first frame.",
+            f"hl.window_rule({{ match = {{ class = {lua_quote(SETTINGS_CLASS)} }}, "
+            f"float = true, size = {{ {SETTINGS_SIZE[0]}, {SETTINGS_SIZE[1]} }}, center = true }})",
             "",
             "-- Watcher: applies monitor settings on hotplug and config reloads.",
             "-- Tray: the icon that opens the settings window.",
