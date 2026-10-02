@@ -2,7 +2,7 @@
 import shutil
 import sys
 
-from hypr_screens import config, hypr, install, keybinds
+from hypr_screens import config, hypr, install, keybinds, samsung
 
 INTRO = """
   hypr-minimizer + hypr-screens · setup
@@ -124,6 +124,18 @@ def run() -> int:
                 print(f"  bar: {install.use_bar_widget()}")
     else:
         print("  No omarchy-shell: no window menu; everything else works.")
+
+    if samsung.present():
+        step(5, "Samsung Galaxy Book")
+        if samsung.is_set_up():
+            print("  Charge limit and performance mode can already be changed.")
+        elif yes("Allow changing charge limit, performance mode and the firmware switches? "
+                 "(needs your password once)"):
+            print("  Done." if samsung.setup() else "  ! Setup failed; try again: hypr-screens samsung setup")
+        if install.has_omarchy_shell() and yes("Use the battery panel with the four Samsung modes in the bar?"):
+            result = install.install_plugins([install.POWER_WIDGET])[install.POWER_WIDGET]
+            print(f"  {install.POWER_WIDGET}: {result}")
+            print(f"  bar: {install.use_bar_widget(install.POWER_WIDGET)}")
     missing = install.gui_available()
     if missing:
         print(f"  ! The settings window needs GTK 4 + libadwaita + PyGObject ({missing}).")

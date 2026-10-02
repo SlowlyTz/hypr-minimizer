@@ -11,10 +11,14 @@ LAUNCHERS = {"hypr-minimizer": REPO / "minimizer.py", "hypr-screens": REPO / "hy
 PLUGINS = {
     "hypr-minimizer.picker": REPO / "omarchy-plugin",
     "hypr-screens.workspaces": REPO / "omarchy-workspaces",
+    "hypr-screens.power": REPO / "omarchy-power",
 }
 # Replaced by the settings window; removed on setup.
 RETIRED_PLUGINS = ["hypr-screens.menu"]
 WORKSPACES_WIDGET = "hypr-screens.workspaces"
+POWER_WIDGET = "hypr-screens.power"
+# Bar widgets live in shell.json's bar layout; they are not enabled as plugins.
+BAR_WIDGETS = {WORKSPACES_WIDGET, POWER_WIDGET}
 
 
 def plugins_dir() -> Path:
@@ -55,7 +59,7 @@ def install_plugins(ids: list[str]) -> dict[str, str]:
     results = {plugin: link(PLUGINS[plugin], plugins_dir() / plugin) for plugin in ids}
     subprocess.run(["omarchy-shell", "shell", "rescanPlugins"], capture_output=True, text=True)
     for plugin in ids:
-        if plugin == WORKSPACES_WIDGET:
+        if plugin in BAR_WIDGETS:
             continue
         # A fresh rescan takes a moment before the plugin is known.
         for _ in range(10):
@@ -102,8 +106,9 @@ def start_tray() -> None:
     )
 
 
-def use_bar_widget() -> str:
-    """Swap the bar's workspaces widget for ours (shell.json reloads itself)."""
+def use_bar_widget(ours: str = WORKSPACES_WIDGET) -> str:
+    """Swap the bar's workspaces (or power) widget for ours; shell.json reloads itself."""
+    kind = ours.rsplit(".", 1)[-1]
     path = shell_json()
     try:
         cfg = json.loads(path.read_text())
@@ -113,12 +118,12 @@ def use_bar_widget() -> str:
     replaced = None
     for section in layout.values():
         for widget in section if isinstance(section, list) else []:
-            if isinstance(widget, dict) and str(widget.get("id", "")).endswith(".workspaces"):
+            if isinstance(widget, dict) and str(widget.get("id", "")).endswith(f".{kind}"):
                 replaced = widget["id"]
-                widget["id"] = WORKSPACES_WIDGET
+                widget["id"] = ours
     if replaced is None:
-        return "no workspaces widget in the bar"
-    if replaced == WORKSPACES_WIDGET:
+        return f"no {kind} widget in the bar"
+    if replaced == ours:
         return "ok"
     backup = path.with_name("shell.json.bak-hypr-screens")
     if not backup.exists():

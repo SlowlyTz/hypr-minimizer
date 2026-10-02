@@ -1,4 +1,4 @@
-"""The settings window: screens, one desktop, keys, sound, help. Mouse and keyboard."""
+"""The settings window: screens, one desktop, keys, sound, Samsung, help. Mouse and keyboard."""
 import copy
 import os
 import subprocess
@@ -11,8 +11,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from hypr_screens import config, desktops, engine, hypr, keybinds  # noqa: E402
+from hypr_screens import config, desktops, engine, hypr, keybinds, samsung  # noqa: E402
 from hypr_screens.gui import texts  # noqa: E402
+from hypr_screens.gui.samsung_page import SamsungPage  # noqa: E402
 from hypr_screens.gui.sound_page import SoundPage  # noqa: E402
 
 WIDTH, HEIGHT = 1000, 720
@@ -97,6 +98,8 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         self.pages = {}
         for key, title, icon in texts.PAGES:
+            if key == "samsung" and not samsung.present():
+                continue
             row = Gtk.ListBoxRow()
             row.page = key
             box = Gtk.Box(spacing=12)
@@ -118,6 +121,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.add_controller(keys)
         self.refresh(force=True)
         self.sound = SoundPage(self, self.pages["sound"])
+        self.samsung = SamsungPage(self, self.pages["samsung"]) if "samsung" in self.pages else None
         GLib.timeout_add_seconds(3, self.poll)
 
     # --- data ------------------------------------------------------------------------

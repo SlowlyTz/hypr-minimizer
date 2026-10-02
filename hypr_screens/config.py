@@ -63,6 +63,7 @@ def default_config() -> dict:
         "default_fixed": "off",
         "screens": {},
         "sound": {"force_mute": {}},
+        "samsung": {"limit": None, "mode": None, "full_once": False},
     }
 
 
@@ -106,6 +107,14 @@ def normalize(raw: object) -> dict:
                     "volume": int(volume) if isinstance(volume, (int, float)) else 0,
                     "mute": bool(entry.get("mute")),
                 }
+
+    samsung = raw.get("samsung") if isinstance(raw.get("samsung"), dict) else {}
+    limit = samsung.get("limit")
+    if isinstance(limit, (int, float)) and not isinstance(limit, bool) and 1 <= limit <= 100:
+        cfg["samsung"]["limit"] = int(limit)
+    if isinstance(samsung.get("mode"), str) and samsung["mode"]:
+        cfg["samsung"]["mode"] = samsung["mode"]
+    cfg["samsung"]["full_once"] = bool(samsung.get("full_once"))
     return cfg
 
 

@@ -11,6 +11,8 @@ PAGES = [
     ("desktop", "Ein Desktop", "view-dual-symbolic"),
     ("keys", "Tasten", "input-keyboard-symbolic"),
     ("sound", "Sound", "audio-volume-high-symbolic"),
+    # Only on a Samsung Galaxy Book (samsung.present()); English like Samsung Settings.
+    ("samsung", "Samsung", "computer-symbolic"),
     ("help", "Hilfe", "help-about-symbolic"),
 ]
 

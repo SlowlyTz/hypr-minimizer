@@ -1,5 +1,6 @@
-"""Background watcher: re-sync on monitor hotplug and config reloads, and keep
-force-muted sound devices silent (sound.guard, in its own thread).
+"""Background watcher: re-sync on monitor hotplug and config reloads, keep
+force-muted sound devices silent (sound.guard) and hold the Samsung charge
+limit and performance mode (samsung.guard), each in its own thread.
 
 A hotplug arrives as a burst of events and settles over a moment, so events are
 collected until SETTLE_SECONDS pass quietly, then one sync runs.
@@ -11,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from hypr_screens import config, engine, sound
+from hypr_screens import config, engine, samsung, sound
 
 SETTLE_SECONDS = 1.0
 EVENTS = {
@@ -60,6 +61,7 @@ def watch() -> int:
         return 0
 
     threading.Thread(target=sound.guard, daemon=True).start()
+    threading.Thread(target=samsung.guard, daemon=True).start()
 
     path = event_socket()
     if path is None:

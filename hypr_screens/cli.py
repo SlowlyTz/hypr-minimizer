@@ -66,6 +66,57 @@ def resolve_screen(cfg: dict, name: str) -> str:
     raise ValueError(f"unknown screen: {name}")
 
 
+def power(args: argparse.Namespace) -> int:
+    """The battery panel's profile buttons: Samsung's four modes when this is a
+    Galaxy Book, otherwise Omarchy's power profiles unchanged."""
+    from hypr_screens import config, samsung
+
+    if not samsung.present():
+        import subprocess
+
+        command = (["omarchy-powerprofiles-list", "--active-state"] if args.action == "list"
+                   else ["omarchy-powerprofiles-set", "autodetect", args.mode or ""])
+        return subprocess.run(command, check=False).returncode
+    if args.action == "list":
+        current = samsung.current_mode()
+        for mode, _label in samsung.modes():
+            print(f"{mode}\t{1 if mode == current else 0}")
+        return 0
+    cfg = config.load()
+    try:
+        samsung.set_mode(cfg, args.mode or "")
+    except (ValueError, RuntimeError) as error:
+        print(f"hypr-screens: {error}", file=sys.stderr)
+        return 1
+    config.save(cfg)
+    return 0
+
+
+def samsung_command(args: argparse.Namespace) -> int:
+    from hypr_screens import config, samsung
+
+    if not samsung.present():
+        print("hypr-screens: not a Samsung Galaxy Book (or the samsung-galaxybook driver is not loaded)",
+              file=sys.stderr)
+        return 1
+    if args.action == "status":
+        print(json.dumps(samsung.status(), indent=2))
+        return 0
+    if args.action == "setup":
+        return 0 if samsung.setup(graphical=not sys.stdin.isatty()) else 1
+    cfg = config.load()
+    try:
+        if args.action == "limit":
+            samsung.set_limit(cfg, int(args.value or 100))
+        else:
+            samsung.full_once(cfg, (args.value or "on") in ("on", "1", "true", "yes"))
+    except (ValueError, RuntimeError) as error:
+        print(f"hypr-screens: {error}", file=sys.stderr)
+        return 1
+    config.save(cfg)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hypr-screens",
@@ -125,6 +176,12 @@ def build_parser() -> argparse.ArgumentParser:
     cycle = sub.add_parser("cycle", help="focus the next visible window")
     cycle.add_argument("direction", nargs="?", choices=["prev"])
     sub.add_parser("status", help="fixed screen status as JSON")
+    power = sub.add_parser("power", help="performance mode, used by the battery panel: list | set MODE")
+    power.add_argument("action", choices=["list", "set"])
+    power.add_argument("mode", nargs="?")
+    samsung = sub.add_parser("samsung", help="Samsung Galaxy Book: status | setup | limit N | full-once on|off")
+    samsung.add_argument("action", choices=["status", "setup", "limit", "full-once"])
+    samsung.add_argument("value", nargs="?")
     return parser
 
 
@@ -181,6 +238,10 @@ def run(args: argparse.Namespace) -> int:
 
         print(json.dumps(desktops.status(config.load())))
         return 0
+    if command == "power":
+        return power(args)
+    if command == "samsung":
+        return samsung_command(args)
     if command == "list":
         from hypr_screens import engine, hypr
 
