@@ -3,7 +3,7 @@
 Two small tools for [Hyprland](https://hyprland.org/), made for [Omarchy](https://omarchy.org/), in one repo:
 
 - **hypr-minimizer** — minimize windows per desktop and get them back (last in, first out), undo, a window menu with icons, and **peek**: a minimized window slides in over your desktop without touching the layout.
-- **hypr-screens** — remembers every monitor you plug in and gives each one its own **rotation, scale, resolution and position**, optionally only while another monitor is connected. Plus **one desktop**: with an external monitor, one screen keeps a single fixed desktop and desktops 1–10 live on the other.
+- **hypr-screens** — remembers every monitor you plug in and gives each one its own **rotation, scale, resolution and position**, optionally only while another monitor is connected. Plus **one desktop**: with an external monitor, one screen keeps a single fixed desktop and desktops 1–10 live on the other. And **sound**: volume per device and per app, and force mute that keeps a device silent.
 
 Only window keys go on the keyboard. All settings are in a window (German UI, mouse or keyboard) that opens from a **tray icon**.
 
@@ -23,9 +23,9 @@ The setup wizard asks for your shortcuts and writes everything else. Details: [d
 | `SUPER + M` | minimize window |
 | `SUPER + I` | bring it back |
 | `SUPER + .` | window menu (`-` = peek) |
-| tray icon | settings: screens, one desktop, keys |
+| tray icon | settings: screens, one desktop, keys, sound |
 
-Everything else: **[docs/](docs/README.md)** — [daily cheat sheet](docs/daily.md) · [minimizer](docs/minimizer.md) · [screens](docs/screens.md) · [one desktop](docs/one-desktop.md) · [keys](docs/keys.md) · [troubleshooting](docs/troubleshooting.md)
+Everything else: **[docs/](docs/README.md)** — [daily cheat sheet](docs/daily.md) · [minimizer](docs/minimizer.md) · [screens](docs/screens.md) · [one desktop](docs/one-desktop.md) · [keys](docs/keys.md) · [sound](docs/sound.md) · [troubleshooting](docs/troubleshooting.md)
 
 ## Requirements
 

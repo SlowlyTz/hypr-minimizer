@@ -62,6 +62,7 @@ def default_config() -> dict:
         "desktop_keys": False,
         "default_fixed": "off",
         "screens": {},
+        "sound": {"force_mute": {}},
     }
 
 
@@ -93,6 +94,18 @@ def normalize(raw: object) -> dict:
                     if key in SETTING_KEYS and isinstance(value, dict)
                 }
                 cfg["screens"][str(screen_id)] = screen
+
+    force_mute = (raw.get("sound") or {}).get("force_mute") if isinstance(raw.get("sound"), dict) else None
+    if isinstance(force_mute, dict):
+        for key, entry in force_mute.items():
+            if isinstance(entry, dict) and entry.get("kind") in ("sink", "source"):
+                volume = entry.get("volume")
+                cfg["sound"]["force_mute"][str(key)] = {
+                    "kind": entry["kind"],
+                    "label": str(entry.get("label") or key),
+                    "volume": int(volume) if isinstance(volume, (int, float)) else 0,
+                    "mute": bool(entry.get("mute")),
+                }
     return cfg
 
 

@@ -10,6 +10,7 @@ PAGES = [
     ("screens", "Bildschirme", "video-display-symbolic"),
     ("desktop", "Ein Desktop", "view-dual-symbolic"),
     ("keys", "Tasten", "input-keyboard-symbolic"),
+    ("sound", "Sound", "audio-volume-high-symbolic"),
     ("help", "Hilfe", "help-about-symbolic"),
 ]
 
@@ -204,6 +205,9 @@ HELP = [
     ("Bildschirme",
      "Jede Einstellung gilt entweder immer oder nur, solange ein bestimmter anderer Bildschirm angeschlossen "
      "ist – z. B. „Laptop kopfüber, aber nur am Schreibtisch-Monitor“."),
+    ("Sound",
+     "Lautstärke für jedes Gerät und jede App, auch für Geräte, die gerade nicht Standard sind. "
+     "„Force Mute“ hält ein Gerät dauerhaft stumm – auch wenn dieses Fenster zu ist."),
     ("Wenn etwas nicht stimmt",
      "Im Terminal hilft oft: hypr-screens apply. Die Einstellungen liegen in ~/.config/hypr-screens/config.json."),
 ]

@@ -1,4 +1,4 @@
-"""The settings window: screens, one desktop, keys, help. Mouse and keyboard."""
+"""The settings window: screens, one desktop, keys, sound, help. Mouse and keyboard."""
 import copy
 import os
 import subprocess
@@ -13,6 +13,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from hypr_screens import config, desktops, engine, hypr, keybinds  # noqa: E402
 from hypr_screens.gui import texts  # noqa: E402
+from hypr_screens.gui.sound_page import SoundPage  # noqa: E402
 
 WIDTH, HEIGHT = 1000, 720
 KEEP_SECONDS = 20
@@ -116,6 +117,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         keys.connect("key-pressed", self.on_window_key)
         self.add_controller(keys)
         self.refresh(force=True)
+        self.sound = SoundPage(self, self.pages["sound"])
         GLib.timeout_add_seconds(3, self.poll)
 
     # --- data ------------------------------------------------------------------------

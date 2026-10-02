@@ -3,7 +3,7 @@
 Two tools, one repo:
 
 - **hypr-minimizer**: hide windows and get them back.
-- **hypr-screens**: settings per monitor, plus "one desktop" on one screen.
+- **hypr-screens**: settings per monitor, plus "one desktop" on one screen, and sound.
 
 | I want to… | Read |
 |---|---|
@@ -13,4 +13,5 @@ Two tools, one repo:
 | rotate/scale/position a monitor | [screens.md](screens.md) |
 | keep one desktop on one screen | [one-desktop.md](one-desktop.md) |
 | change a shortcut | [keys.md](keys.md) |
+| control sound per device and app, force mute | [sound.md](sound.md) |
 | fix something | [troubleshooting.md](troubleshooting.md) |
