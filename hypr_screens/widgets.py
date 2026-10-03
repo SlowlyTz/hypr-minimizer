@@ -22,7 +22,7 @@ from hypr_screens.root import run_as_root
 
 PLUGIN = "hypr-screens.widgets"
 WORKSPACES_IDS = ("hypr-screens.workspaces", "omarchy.workspaces")
-KINDS = ["visualizer", "lyrics", "clock", "system"]
+KINDS = ["visualizer", "lyrics", "clock", "system", "nowplaying", "weather", "calendar", "battery", "network", "disk"]
 WHERE = ["bar", "desktop", "both"]
 MONITOR_MODES = ["laptop", "external", "all", "screen"]
 # Accent colors: the theme's accent or text color, or white; the visualizer
@@ -79,6 +79,25 @@ PARTS = {
     "system": [(group, [(f"{gauge}_label", "Label", "theme:foreground"), (f"{gauge}_value", "Value", "accent"),
                         (f"{gauge}_line", "Curve", "accent"), (f"{gauge}_fill", "Area under the curve", "auto")])
                for gauge, group in (("cpu", "CPU usage"), ("memory", "Memory"), ("temperature", "Temperature"))],
+    "nowplaying": [("Song", [("title", "Title", "theme:foreground"), ("artist", "Artist", "accent"),
+                             ("album", "Album", "auto"), ("time", "Time", "auto")]),
+                   ("Progress", [("progress", "Progress", "accent"), ("progress_track", "Track", "auto")]),
+                   ("Buttons", [("buttons", "Buttons", "theme:foreground")])],
+    "weather": [("Weather", [("icon", "Icon", "accent"), ("temp", "Temperature", "theme:foreground"),
+                             ("place", "Place", "auto"), ("details", "Details", "auto"),
+                             ("forecast", "Forecast", "theme:foreground")])],
+    "calendar": [("Calendar", [("month", "Month", "accent"), ("weekdays", "Weekday names", "auto"),
+                               ("days", "Days", "theme:foreground"), ("other_days", "Days of other months", "auto"),
+                               ("today", "Today", "accent"), ("today_text", "Today's number", "theme:background"),
+                               ("weeks", "Week numbers", "auto")])],
+    "battery": [("Battery", [("ring", "Ring", "accent"), ("ring_track", "Ring track", "auto"),
+                             ("charging", "Charging", "theme:green"), ("low_ring", "Low battery", "theme:red"),
+                             ("percent", "Percent", "theme:foreground"), ("time_left", "Time left", "auto")])],
+    "network": [("Download", [("down_value", "Value", "accent"), ("down_line", "Curve", "accent")]),
+                ("Upload", [("up_value", "Value", "theme:green"), ("up_line", "Curve", "theme:green")]),
+                ("Labels", [("labels", "Labels", "theme:foreground")])],
+    "disk": [("Disks", [("label", "Name", "theme:foreground"), ("value", "Value", "accent"), ("bar", "Bar", "accent"),
+                        ("bar_track", "Bar track", "auto")])],
 }
 # Where a widget first appears: the middle, so it can be dragged from there.
 CENTER = {"x": 0.5, "y": 0.5, "rotation": 0}
@@ -96,6 +115,22 @@ BASE = {
     "system": {"enabled": False, "monitors": ALL_SCREENS, "cpu": True, "memory": True, "temperature": True,
                "curves": True, "color": "accent", "opacity": 100, "size": 100, "width": 0,
                "placed": False, **CENTER},
+    # The song playing: cover, title, artist, album, progress, time and buttons.
+    "nowplaying": {"enabled": False, "monitors": ALL_SCREENS, "player": "", "np_layout": "row", "show_cover": True,
+                   "show_title": True, "show_artist": True, "show_album": False, "show_progress": True,
+                   "show_time": True, "show_controls": True, "hide_idle": True, "color": "accent", "opacity": 100,
+                   "size": 100, "width": 0, "placed": False, **CENTER},
+    # The weather at Omarchy's weather place (open-meteo).
+    "weather": {"enabled": False, "monitors": ALL_SCREENS, "units": "c", "show_place": True, "show_details": True,
+                "show_forecast": True, "color": "accent", "opacity": 100, "size": 100, "placed": False, **CENTER},
+    "calendar": {"enabled": False, "monitors": ALL_SCREENS, "week_start": "monday", "show_weeks": False,
+                 "show_month": True, "color": "accent", "opacity": 100, "size": 100, "placed": False, **CENTER},
+    "battery": {"enabled": False, "monitors": ALL_SCREENS, "show_percent": True, "show_remaining": True, "low": 20,
+                "color": "accent", "opacity": 100, "size": 100, "placed": False, **CENTER},
+    "network": {"enabled": False, "monitors": ALL_SCREENS, "curves": True, "color": "accent", "opacity": 100,
+                "size": 100, "width": 0, "placed": False, **CENTER},
+    "disk": {"enabled": False, "monitors": ALL_SCREENS, "show_free": False, "color": "accent", "opacity": 100,
+             "size": 100, "width": 0, "placed": False, **CENTER},
 }
 DEFAULTS = {kind: {**base, **STYLE, **VISIBILITY, **PLACES} for kind, base in BASE.items()}
 # The values a setting can take; the first-listed default is in DEFAULTS.
@@ -112,20 +147,31 @@ CHOICES = {
     "clock": {"clock_style": ["digital", "analog", "flip", "words"], "hours": ["24", "12"],
               "date_format": ["long", "medium", "short", "iso", "custom"], "color": TEXT_COLORS, **STYLE_CHOICES},
     "system": {"color": TEXT_COLORS, **STYLE_CHOICES},
+    "nowplaying": {"np_layout": ["row", "column"], "color": TEXT_COLORS, **STYLE_CHOICES},
+    "weather": {"units": ["c", "f"], "color": TEXT_COLORS, **STYLE_CHOICES},
+    "calendar": {"week_start": ["monday", "sunday"], "color": TEXT_COLORS, **STYLE_CHOICES},
+    "battery": {"color": TEXT_COLORS, **STYLE_CHOICES},
+    "network": {"color": TEXT_COLORS, **STYLE_CHOICES},
+    "disk": {"color": TEXT_COLORS, **STYLE_CHOICES},
 }
-TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "system": "System"}
+TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "system": "System",
+          "nowplaying": "Now Playing", "weather": "Weather", "calendar": "Calendar", "battery": "Battery",
+          "network": "Network", "disk": "Disks"}
 LOCALES = {"en": "en_US", "de": "de_DE", "es": "es_ES", "fr": "fr_FR", "it": "it_IT"}
 # key: (minimum, maximum)
 RANGES = {"bars": (8, 64), "lines": (1, 10), "opacity": (20, 100), "rotation": (-360, 360),
           "scroll_ms": (150, 1500), "current_size": (100, 170), "gap": (0, 200), "sensitivity": (20, 300),
-          "smoothing": (0, 100),
+          "smoothing": (0, 100), "low": (5, 50),
           "letter_spacing": (-2, 20), "effect_strength": (0, 100), "card_radius": (0, 60), "card_padding": (0, 80),
           "card_opacity": (5, 100)}
 # The visualizer's and the lyrics' size is their height in pixels (the lyrics'
 # font fills it), the others' a scale in percent.
-SIZE_RANGES = {"visualizer": (30, 600), "lyrics": (40, 1200), "clock": (30, 400), "system": (50, 300)}
+SIZE_RANGES = {"visualizer": (30, 600), "lyrics": (40, 1200), "clock": (30, 400), "system": (50, 300),
+               "nowplaying": (40, 300), "weather": (40, 300), "calendar": (40, 300), "battery": (30, 400),
+               "network": (50, 300), "disk": (50, 300)}
 # Width in pixels for the widgets that can be made wider on their own.
-WIDTH_RANGES = {"visualizer": (60, 2000), "lyrics": (200, 2400), "system": (150, 1200)}
+WIDTH_RANGES = {"visualizer": (60, 2000), "lyrics": (200, 2400), "system": (150, 1200), "nowplaying": (160, 1600),
+                "network": (150, 1200), "disk": (150, 1200)}
 # What arranging may change.
 PLACEMENT_KEYS = ("x", "y", "rotation", "size", "width", "colors", "spots")
 SPOT_KEYS = ("x", "y", "rotation", "size", "width")
@@ -352,6 +398,19 @@ def export(cfg: dict) -> None:
             "cpu": "CPU",
             "memory": t("Memory"),
             "temperature": t("Temperature"),
+            "sampleTitle": t("Song title"),
+            "sampleArtist": t("Artist"),
+            "sampleAlbum": t("Album"),
+            "noWeatherPlace": t("Pick a place in Omarchy's weather panel"),
+            "feelsLike": t("Feels like"),
+            "noBattery": t("No battery"),
+            "fullIn": t("Full in {time}", time="{time}"),
+            "timeLeft": t("{time} left", time="{time}"),
+            "charging": t("Charging"),
+            "download": t("Download"),
+            "upload": t("Upload"),
+            "systemDisk": t("System"),
+            "free": t("free"),
         },
     }
     text = json.dumps(data, indent=2) + "\n"

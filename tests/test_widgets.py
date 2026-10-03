@@ -184,3 +184,14 @@ def test_visualizer_styles_and_motion():
     assert (v["style"], v["gap"], v["sensitivity"], v["smoothing"]) == ("circle", 200, 20, 30)
     assert v["peaks"]
     assert "noise_reduction = 30" in widgets.cava_config(16, "auto", 30)
+
+
+def test_the_new_widgets():
+    state = widgets.normalize({"nowplaying": {"np_layout": "column", "show_album": True, "player": "spotify"},
+                               "weather": {"units": "f"}, "calendar": {"week_start": "sunday", "show_weeks": True},
+                               "battery": {"low": 99}, "disk": {"show_free": True}, "network": {"curves": False}})
+    assert state["nowplaying"]["np_layout"] == "column" and state["nowplaying"]["show_album"]
+    assert state["weather"]["units"] == "f" and state["calendar"]["week_start"] == "sunday"
+    assert state["battery"]["low"] == 50 and state["disk"]["show_free"] and not state["network"]["curves"]
+    for kind in widgets.KINDS:
+        assert kind in widgets.TITLES and kind in widgets.PARTS and kind in widgets.SIZE_RANGES

@@ -37,6 +37,18 @@ SECTIONS = {
               ("Look", LOOK)],
     "system": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
                ("Content", ["cpu", "memory", "temperature", "curves"]), ("Look", LOOK)],
+    "nowplaying": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
+                   ("Content", ["player", "np_layout", "np_parts", "hide_idle"]), ("Look", LOOK)],
+    "weather": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
+                ("Content", ["units", "show_place", "show_details", "show_forecast"]), ("Look", LOOK)],
+    "calendar": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
+                 ("Content", ["week_start", "show_month", "show_weeks"]), ("Look", LOOK)],
+    "battery": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
+                ("Content", ["show_percent", "show_remaining", "low"]), ("Look", LOOK)],
+    "network": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["curves"]),
+                ("Look", LOOK)],
+    "disk": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["show_free"]),
+             ("Look", LOOK)],
 }
 # Rows that fold out: key: (title, the settings inside, the setting its own
 # switch turns on and off, if any).
@@ -44,17 +56,24 @@ EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"], 
              "effect": ("Effect", ["effect", "effect_strength"], None),
              "card": ("Background card", ["card_radius", "card_padding", "card_opacity", "card_blur"], "card"),
              "date_group": ("Date", ["weekday", "date_format", "date_pattern"], "date"),
-             "motion": ("Motion", ["sensitivity", "smoothing", "peaks"], None)}
+             "motion": ("Motion", ["sensitivity", "smoothing", "peaks"], None),
+             "np_parts": ("Parts", ["show_cover", "show_title", "show_artist", "show_album", "show_progress",
+                                    "show_time", "show_controls"], None)}
 # Choices that change which rows there are.
 REBUILDS = {"where", "date_format", "clock_style"}
 ICONS = {"visualizer": "audio-volume-high-symbolic", "lyrics": "format-justify-center-symbolic",
-         "clock": "alarm-symbolic", "system": "computer-symbolic"}
+         "clock": "alarm-symbolic", "system": "computer-symbolic", "nowplaying": "media-playback-start-symbolic",
+         "weather": "weather-few-clouds-symbolic", "calendar": "x-office-calendar-symbolic",
+         "battery": "battery-good-symbolic", "network": "network-transmit-receive-symbolic",
+         "disk": "drive-harddisk-symbolic"}
 # The setting a widget's summary in the overview names after its screens.
-SUMMARY = {"visualizer": "where", "lyrics": "highlight", "clock": "hours"}
+SUMMARY = {"visualizer": "where", "lyrics": "highlight", "clock": "clock_style", "nowplaying": "np_layout",
+           "weather": "units", "calendar": "week_start"}
 # Settings picked from a list (widgets.CHOICES): their title and labels.
 CHOICE_TITLES = {"where": "Where", "style": "Style", "highlight": "Highlight", "align": "Alignment",
                  "hours": "Time format", "color": "Accent color", "font_weight": "Weight", "effect": "Effect",
-                 "clock_style": "Style", "date_format": "Date format"}
+                 "clock_style": "Style", "date_format": "Date format", "np_layout": "Layout", "units": "Units",
+                 "week_start": "Week starts on"}
 CHOICE_LABELS = {
     "where": {"bar": "In the bar", "desktop": "On the desktop", "both": "Bar and desktop"},
     "style": {"bottom": "Bars from the bottom", "mirrored": "Mirrored from the middle", "wave": "Wave",
@@ -66,6 +85,9 @@ CHOICE_LABELS = {
     "font_weight": {"light": "Light", "regular": "Regular", "medium": "Medium", "bold": "Bold", "black": "Black"},
     "effect": {"outline": "Outline", "shadow": "Shadow", "glow": "Glow", "none": "None"},
     "clock_style": {"digital": "Digital", "analog": "Analog", "flip": "Flip cards", "words": "In words"},
+    "np_layout": {"row": "Cover beside the text", "column": "Cover above the text"},
+    "units": {"c": "Celsius", "f": "Fahrenheit"},
+    "week_start": {"monday": "Monday", "sunday": "Sunday"},
     "date_format": {"long": "Long (3 October)", "medium": "Medium (3 Oct 2026)", "short": "Short (as the language writes it)",
                     "iso": "ISO (2026-10-03)", "custom": "Own pattern"},
 }
@@ -74,14 +96,20 @@ SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "s
                  "card_blur": "Blur behind the card", "only_empty": "Only on an empty desktop",
                  "hide_on_battery": "Hide on battery", "above": "Above the windows",
                  "same_place": "Same place on every screen", "weekday": "Show the weekday",
-                 "peaks": "Peak marks"}
+                 "peaks": "Peak marks", "show_cover": "Cover", "show_title": "Title",
+                 "show_artist": "Artist", "show_album": "Album", "show_progress": "Progress bar", "show_time": "Time",
+                 "show_controls": "Buttons", "hide_idle": "Hide while nothing plays", "show_place": "Place",
+                 "show_details": "Details", "show_forecast": "Next days", "show_month": "Month name",
+                 "show_weeks": "Week numbers", "show_percent": "Percent", "show_remaining": "Time left",
+                 "show_free": "Free space instead of used"}
 # key: (title, step, unit); the range is widgets.RANGES.
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
                "card_radius": ("Corners", 2, " px"), "card_padding": ("Room around", 2, " px"),
                "card_opacity": ("Card opacity", 5, " %"), "scroll_ms": ("Scroll time", 50, " ms"),
                "current_size": ("Size of the line being sung", 5, " %"), "gap": ("Room between bars", 5, " %"),
-               "sensitivity": ("Sensitivity", 10, " %"), "smoothing": ("Smoothing", 5, " %")}
+               "sensitivity": ("Sensitivity", 10, " %"), "smoothing": ("Smoothing", 5, " %"),
+               "low": ("Low at", 5, " %")}
 # Whole numbers typed in (or stepped with − and +): key: title; the range is widgets.RANGES.
 NUMBER_ROWS = {"lines": "Lines"}
 HINTS = {
@@ -95,6 +123,12 @@ DESCRIPTIONS = {
     "lyrics": "The words of the song playing, in time with the music (from lrclib.net).",
     "clock": "A big clock with the date.",
     "system": "CPU, memory and temperature with a curve of the last two minutes.",
+    "nowplaying": "The song playing with its cover, a progress bar and buttons.",
+    "weather": "The weather at the place set in Omarchy's weather panel.",
+    "calendar": "This month with today marked.",
+    "battery": "The battery's charge as a ring, with the time left.",
+    "network": "Download and upload right now, with curves.",
+    "disk": "How full every disk is.",
 }
 
 
@@ -510,6 +544,9 @@ class WidgetsTab:
     def expander_summary(self, key: str, widget: dict) -> str:
         if key == "font":
             return f"{widget['font_family'] or t('The Omarchy font')} · {t(CHOICE_LABELS['font_weight'][widget['font_weight']])}"
+        if key == "np_parts":
+            keys = EXPANDERS["np_parts"][1]
+            return t("{shown} of {all}", shown=sum(1 for k in keys if widget[k]), all=len(keys))
         if key == "motion":
             return f"{widget['sensitivity']} % · {widget['smoothing']} %" + (f" · {t('Peak marks')}" if widget["peaks"] else "")
         if key == "date_group":

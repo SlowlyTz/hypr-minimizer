@@ -612,6 +612,185 @@ Item {
     root.temperatureHistory = root.pushHistory(root.temperatureHistory, Math.min(1, root.temperature / 100))
   }
 
+  // --- now playing ------------------------------------------------------------------------
+
+  property var npPlayer: null
+  property real npPosition: 0
+  Timer {
+    interval: 500
+    repeat: true
+    running: root.enabled("nowplaying")
+    triggeredOnStart: true
+    onTriggered: {
+      var next = root.pickPlayer(root.widget("nowplaying").player)
+      if (next !== root.npPlayer) root.npPlayer = next
+      if (next && next.isPlaying) next.positionChanged()
+      root.npPosition = next ? Number(next.position || 0) : 0
+    }
+  }
+
+  // --- weather: Omarchy's place, open-meteo ---------------------------------------------------
+
+  property var weatherPlace: ({ name: "", latitude: NaN, longitude: NaN })
+  property var weather: null      // {temp, feels, humidity, wind, code, day, days: [{date, code, max, min}]}
+  readonly property bool weatherWanted: root.enabled("weather")
+  FileView {
+    id: weatherPlaceFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var data = {}
+      try { data = JSON.parse(String(text())) } catch (e) {}
+      root.weatherPlace = { name: String(data.name || ""), latitude: parseFloat(String(data.latitude)),
+                            longitude: parseFloat(String(data.longitude)) }
+      root.fetchWeather()
+    }
+  }
+  onWeatherWantedChanged: if (weatherWanted) fetchWeather()
+  Timer { interval: 900000; repeat: true; running: root.weatherWanted; onTriggered: root.fetchWeather() }
+  function fetchWeather() {
+    if (!root.weatherWanted) return
+    var place = root.weatherPlace
+    if (isNaN(place.latitude) || isNaN(place.longitude)) {
+      if (!place.name) return
+      // Only a name: find its coordinates first.
+      root.getJson("https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&name=" + encodeURIComponent(place.name),
+                   function(data) {
+        var hit = data && data.results && data.results[0]
+        if (!hit) return
+        root.weatherPlace = { name: place.name, latitude: hit.latitude, longitude: hit.longitude }
+        root.fetchWeather()
+      })
+      return
+    }
+    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + place.latitude + "&longitude=" + place.longitude
+      + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
+      + "&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=4&timezone=auto"
+    root.getJson(url, function(data) {
+      if (!data || !data.current) return
+      var days = []
+      var daily = data.daily || {}
+      for (var i = 1; daily.time && i < daily.time.length; i++) {
+        days.push({ date: daily.time[i], code: daily.weather_code[i], max: daily.temperature_2m_max[i],
+                    min: daily.temperature_2m_min[i] })
+      }
+      root.weather = { temp: data.current.temperature_2m, feels: data.current.apparent_temperature,
+                       humidity: data.current.relative_humidity_2m, wind: data.current.wind_speed_10m,
+                       code: data.current.weather_code, day: data.current.is_day === 1, days: days }
+    })
+  }
+  function getJson(url, done) {
+    var xhr = new XMLHttpRequest()
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== XMLHttpRequest.DONE) return
+      var data = null
+      if (xhr.status === 200) { try { data = JSON.parse(xhr.responseText) } catch (e) { data = null } }
+      done(data)
+    }
+    xhr.open("GET", url)
+    xhr.send()
+  }
+  // A WMO weather code as a Nerd Font icon.
+  function weatherIcon(code, day) {
+    if (code === 0) return day === false ? String.fromCodePoint(0xf0594) : String.fromCodePoint(0xf0599)
+    if (code <= 2) return day === false ? String.fromCodePoint(0xf0f31) : String.fromCodePoint(0xf0595)
+    if (code === 3) return String.fromCodePoint(0xf0590)
+    if (code <= 48) return String.fromCodePoint(0xf0591)
+    if (code <= 57) return String.fromCodePoint(0xf0597)
+    if (code <= 67) return String.fromCodePoint(0xf0596)
+    if (code <= 77) return String.fromCodePoint(0xf0598)
+    if (code <= 82) return String.fromCodePoint(0xf0596)
+    if (code <= 86) return String.fromCodePoint(0xf0598)
+    return String.fromCodePoint(0xf0593)
+  }
+
+  // --- network: /proc/net/dev -----------------------------------------------------------------
+
+  property real netDown: 0       // bytes a second
+  property real netUp: 0
+  property var netDownHistory: []
+  property var netUpHistory: []
+  property var lastNet: null
+  Process {
+    id: netStats
+    command: ["cat", "/proc/net/dev"]
+    stdout: StdioCollector { onStreamFinished: root.takeNet(text) }
+  }
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.enabled("network")
+    triggeredOnStart: true
+    onTriggered: if (!netStats.running) netStats.running = true
+  }
+  function takeNet(text) {
+    var rx = 0, tx = 0
+    var rows = String(text).split("\n")
+    for (var i = 2; i < rows.length; i++) {
+      var match = rows[i].match(/^\s*([^:]+):\s*(.*)$/)
+      if (!match || match[1] === "lo") continue
+      var fields = match[2].trim().split(/\s+/).map(Number)
+      rx += fields[0] || 0
+      tx += fields[8] || 0
+    }
+    var now = Date.now()
+    if (root.lastNet) {
+      var seconds = Math.max(0.5, (now - root.lastNet.at) / 1000)
+      root.netDown = Math.max(0, (rx - root.lastNet.rx) / seconds)
+      root.netUp = Math.max(0, (tx - root.lastNet.tx) / seconds)
+      root.netDownHistory = root.pushHistory(root.netDownHistory, root.netDown)
+      root.netUpHistory = root.pushHistory(root.netUpHistory, root.netUp)
+    }
+    root.lastNet = { rx: rx, tx: tx, at: now }
+  }
+  function rate(bytes) {
+    var units = ["B/s", "KB/s", "MB/s", "GB/s"]
+    var i = 0
+    while (bytes >= 1000 && i < units.length - 1) { bytes /= 1000; i++ }
+    return (bytes >= 100 || i === 0 ? Math.round(bytes) : bytes.toFixed(1)) + " " + units[i]
+  }
+
+  // --- disks: df --------------------------------------------------------------------------------
+
+  property var disks: []          // [{mount, size, used}]
+  Process {
+    id: diskStats
+    command: ["df", "-B1", "--output=source,target,size,used", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs",
+              "-x", "squashfs", "-x", "overlay"]
+    stdout: StdioCollector { onStreamFinished: root.takeDisks(text) }
+  }
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.enabled("disk")
+    triggeredOnStart: true
+    onTriggered: if (!diskStats.running) diskStats.running = true
+  }
+  // One row per device (btrfs mounts the same one many times: the shortest
+  // mount point stands for it); small boot partitions are left out.
+  function takeDisks(text) {
+    var bySource = {}
+    var order = []
+    var rows = String(text).split("\n")
+    for (var i = 1; i < rows.length; i++) {
+      var f = rows[i].trim().split(/\s+/)
+      if (f.length < 4 || !(Number(f[2]) > 0)) continue
+      if (/^\/(boot|efi)/.test(f[1]) && Number(f[2]) < 4e9) continue
+      var known = bySource[f[0]]
+      if (!known) { order.push(f[0]); bySource[f[0]] = { mount: f[1], size: Number(f[2]), used: Number(f[3]) } }
+      else if (f[1].length < known.mount.length) known.mount = f[1]
+    }
+    root.disks = order.map(function(source) { return bySource[source] })
+  }
+  function bytes(n) {
+    var units = ["B", "KB", "MB", "GB", "TB"]
+    var i = 0
+    while (n >= 1000 && i < units.length - 1) { n /= 1000; i++ }
+    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i]
+  }
+
   // --- the layers -----------------------------------------------------------------------
 
   // Is the widget on this screen, and (without a group: on any layer, as while
@@ -644,7 +823,15 @@ Item {
   Component { id: lyricsView; LyricsView { service: root } }
   Component { id: clockView; ClockView { service: root } }
   Component { id: systemView; SystemView { service: root } }
-  readonly property var views: ({ visualizer: visualizerView, lyrics: lyricsView, clock: clockView, system: systemView })
+  Component { id: nowplayingView; NowPlayingView { service: root } }
+  Component { id: weatherView; WeatherView { service: root } }
+  Component { id: calendarView; CalendarView { service: root } }
+  Component { id: batteryView; BatteryView { service: root } }
+  Component { id: networkView; NetworkView { service: root } }
+  Component { id: diskView; DiskView { service: root } }
+  readonly property var views: ({ visualizer: visualizerView, lyrics: lyricsView, clock: clockView, system: systemView,
+                                  nowplaying: nowplayingView, weather: weatherView, calendar: calendarView,
+                                  battery: batteryView, network: networkView, disk: diskView })
 
   // --- arranging ------------------------------------------------------------------------
 
@@ -677,6 +864,9 @@ Item {
     required property var modelData
     property bool editLayer: false
     property string group: "bottom"
+    // A part that takes clicks (Now Playing's buttons); clicks go through
+    // everywhere else.
+    property Item clickable: null
     readonly property var hyprMonitor: Hyprland.monitorFor(modelData)
     readonly property bool fullscreen: !!(hyprMonitor && hyprMonitor.activeWorkspace && hyprMonitor.activeWorkspace.hasFullscreen)
     screen: modelData
@@ -690,11 +880,12 @@ Item {
     WlrLayershell.layer: editLayer ? WlrLayer.Overlay : (group.indexOf("top") === 0 ? WlrLayer.Top : WlrLayer.Bottom)
     // While arranging, Esc must reach it; otherwise it never takes the keyboard.
     WlrLayershell.keyboardFocus: editLayer ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    // Clicks go through, except while arranging.
-    mask: editLayer ? allInput : noInput
+    // Clicks go through, except while arranging and on clickable parts.
+    mask: editLayer ? allInput : (clickable ? clickRegion : noInput)
     onVisibleChanged: if (visible && editLayer) canvas.forceActiveFocus()
     Region { id: noInput }
     Region { id: allInput; item: canvas }
+    Region { id: clickRegion; item: panel.clickable }
     ScreenMoveRemap { id: remap; window: panel }
 
     Item {
@@ -767,6 +958,12 @@ Item {
           }
           Binding { target: view.item; property: "editing"; value: panel.editLayer; when: view.item !== null }
           Binding { target: view.item; property: "spot"; value: placed.spot; when: view.item !== null }
+          Binding {
+            target: panel
+            property: "clickable"
+            value: view.item ? view.item.controls : null
+            when: placed.kind === "nowplaying" && placed.visible && !panel.editLayer && view.item !== null
+          }
         }
       }
     }

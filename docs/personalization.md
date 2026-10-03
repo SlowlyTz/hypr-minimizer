@@ -26,6 +26,12 @@ Widgets sit on the desktop **behind the windows**. The Widgets page lists them w
 | **Lyrics** | the words of the song playing, in time with the music (from lrclib.net) | highlight (current line, word by word, off), alignment, lines (1–10, typed in), hide while paused |
 | **Clock** | time and date | style (digital, analog, flip cards, in words – "quarter past six" in the app's language), 24 or 12 hours, seconds, weekday, date format (long, medium, short, ISO or an own Qt pattern), a second time zone |
 | **System** | CPU, memory and temperature with a curve of the last two minutes | each gauge on or off, curves on or off |
+| **Now Playing** | the song playing: cover, title, artist, album, progress, time, buttons (back, play/pause, next – they take clicks, the rest of the desktop stays clickable) | the app it follows, cover beside or above the text, each part on or off, hide while nothing plays |
+| **Weather** | the weather at the place set in Omarchy's weather panel (open-meteo): icon, temperature, place, feels like, humidity, wind, the next three days | Celsius or Fahrenheit, place, details, next days |
+| **Calendar** | this month, today marked, the neighbouring months' days dimmed | week starts on Monday or Sunday, month name, week numbers |
+| **Battery** | the charge as a ring (charging and low colors), percent, time left or until full | percent, time left, low at |
+| **Network** | download and upload right now (all devices but loopback) with curves | curves |
+| **Disks** | every disk once (btrfs subvolumes count as one; small boot partitions left out): used of its size, a bar | free space instead of used |
 
 Every widget has its own **look**:
 
