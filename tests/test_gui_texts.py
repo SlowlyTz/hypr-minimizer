@@ -13,31 +13,43 @@ def test_keys_are_spelled_like_hyprland():
 
 def test_combo_labels_read_like_keys():
     assert texts.combo_label("SUPER + SHIFT + PERIOD") == "Super + Shift + ."
-    assert texts.combo_label("SUPER + SHIFT + F23") == "Copilot-Taste"
+    assert texts.combo_label("SUPER + SHIFT + F23") == "Copilot key"
     assert texts.combo_label("") == "—"
 
 
 def test_choices_start_with_not_set_and_keep_types_apart():
     screen = {"modes": ["2560x1440@59.95"], "internal": False}
     rotation = texts.choices("rotation", screen)
-    assert rotation[0] == (None, texts.AS_CONFIGURED)
+    assert rotation[0] == (None, texts.as_configured())
     assert texts.index_of(rotation, 180) == 3
     assert texts.choices("mode", screen)[2] == ("2560x1440@59.95", "2560 × 1440 · 60 Hz")
     scale = texts.choices("scale", screen)
     assert texts.index_of(scale, 1.0) == 2
     one = texts.choices("one_desktop", screen, "external")
-    assert one[0][1] == "Standard (ja)"
+    assert one[0][1] == "Default (yes)"
     assert texts.index_of(one, True) == 1 and texts.index_of(one, False) == 2
 
 
 def test_conditions_list_only_connected_screens_plus_the_current_one():
     cfg = {"screens": {"a": {"name": "Laptop"}, "b": {"name": "HP 32f"}, "c": {"name": "Fujitsu"}}}
-    assert texts.condition_choices(cfg, "a", {"a", "b"}) == [(None, "Immer"), ("b", "Nur mit „HP 32f“")]
+    assert texts.condition_choices(cfg, "a", {"a", "b"}) == [(None, "Always"), ("b", "Only with “HP 32f”")]
     assert texts.condition_choices(cfg, "a", {"a", "b"}, current="c") == [
-        (None, "Immer"),
-        ("c", "Nur mit „Fujitsu“ (nicht angeschlossen)"),
-        ("b", "Nur mit „HP 32f“"),
+        (None, "Always"),
+        ("c", "Only with “Fujitsu” (not connected)"),
+        ("b", "Only with “HP 32f”"),
     ]
+
+
+def test_texts_follow_the_language():
+    from hypr_screens import i18n
+
+    i18n.set_language("de")
+    try:
+        assert texts.condition_choices({"screens": {"a": {}, "b": {"name": "HP 32f"}}}, "a", {"b"})[1][1] == \
+            "Nur mit „HP 32f“"
+        assert [title for _key, title, _icon in texts.pages()][:3] == ["Bildschirme", "Ein Desktop", "Tasten"]
+    finally:
+        i18n.set_language("en")
 
 
 def test_theme_uses_omarchy_colors(tmp_path):

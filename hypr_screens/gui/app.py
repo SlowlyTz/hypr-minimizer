@@ -12,7 +12,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from hypr_screens import config, desktops  # noqa: E402
+from hypr_screens import config, desktops, i18n  # noqa: E402
+from hypr_screens.i18n import t  # noqa: E402
 from hypr_screens.gui import theme  # noqa: E402
 
 APP_ID = "io.github.slowlytz.HyprScreens"
@@ -53,14 +54,15 @@ class App(Adw.Application):
             return
         from hypr_screens.gui.tray import Tray
 
+        i18n.use_configured()
         self.tray = Tray(
-            "Bildschirme & Tasten",
+            t("Screens & keys"),
             "video-display-symbolic",
             self.show_settings,
-            [("Einstellungen öffnen", self.show_settings),
-             ("Festen Bildschirm tauschen", self.swap),
+            [(t("Open settings"), self.show_settings),
+             (t("Swap the fixed screen"), self.swap),
              None,
-             ("Beenden", self.quit)],
+             (t("Quit"), self.quit)],
         )
         self.tray.start()
         self.hold()  # keep running without a window
@@ -75,6 +77,19 @@ class App(Adw.Application):
         else:
             self.window.refresh(force=True)
         self.window.present()
+        GLib.timeout_add(150, self.window.float_centered)
+        return False
+
+    def reopen_settings(self, page: str) -> bool:
+        """Build the window anew (e.g. in another language), on the same page."""
+        from hypr_screens.gui.window import SettingsWindow
+
+        old = self.window
+        self.window = SettingsWindow(self, page)
+        self.window.connect("close-request", self.on_close)
+        self.window.present()
+        if old is not None:
+            old.destroy()
         GLib.timeout_add(150, self.window.float_centered)
         return False
 

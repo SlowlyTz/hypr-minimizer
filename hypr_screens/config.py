@@ -19,6 +19,7 @@ SCALES = ["auto", 1, 1.25, 1.5, 2]
 POSITIONS = ["left", "right", "above", "below"]
 FIXED_DEFAULTS = ["off", "external", "panel"]
 SETTING_KEYS = ["rotation", "scale", "mode", "position", "one_desktop"]
+LANGUAGE_CODES = ["en", "de", "es", "fr", "it"]
 
 # (key, label, command) -- two keys each, see DEFAULT_KEYBINDS.
 ACTIONS = [
@@ -64,6 +65,7 @@ def default_config() -> dict:
         "screens": {},
         "sound": {"force_mute": {}},
         "samsung": {"limit": None, "mode": None, "full_once": False},
+        "language": "en",
     }
 
 
@@ -115,6 +117,8 @@ def normalize(raw: object) -> dict:
     if isinstance(samsung.get("mode"), str) and samsung["mode"]:
         cfg["samsung"]["mode"] = samsung["mode"]
     cfg["samsung"]["full_once"] = bool(samsung.get("full_once"))
+    if raw.get("language") in LANGUAGE_CODES:
+        cfg["language"] = raw["language"]
     return cfg
 
 

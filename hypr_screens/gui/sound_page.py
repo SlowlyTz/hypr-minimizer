@@ -15,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from hypr_screens import config, sound  # noqa: E402
+from hypr_screens.i18n import t  # noqa: E402
 
 POLL_MS = 1000
 APPLY_MS = 50
@@ -54,8 +55,8 @@ class SoundPage:
         self.icons: dict[str, Gio.Icon | str] = {}
         self.jobs: queue.Queue = queue.Queue()
         threading.Thread(target=self.worker, daemon=True).start()
-        self.page.append(label("Sound", "page-title"))
-        self.page.append(label("Lade …", "hint"))
+        self.page.append(label(t("Sound"), "page-title"))
+        self.page.append(label(t("Loading …"), "hint"))
         GLib.timeout_add(POLL_MS, self.tick)
         self.fetch()
 
@@ -90,7 +91,7 @@ class SoundPage:
             try:
                 work()
             except Exception as error:
-                GLib.idle_add(self.window.toast, f"Fehler: {error}")
+                GLib.idle_add(self.window.toast, t("Error: {error}", error=error))
             if self.jobs.empty():
                 GLib.idle_add(lambda: self.fetch() and False)
 
@@ -126,28 +127,28 @@ class SoundPage:
         clear(self.page)
         self.controls.clear()
         data = self.data
-        self.page.append(label("Sound", "page-title"))
-        self.page.append(label(
-            "Lautstärke für jedes Gerät und jede App. „Force Mute“ hält ein Gerät dauerhaft stumm: "
-            "Es wird sofort und jede Sekunde wieder auf 0 % und stumm gesetzt – auch wenn eine App "
-            "oder eine Taste es lauter macht.", "hint"))
+        self.page.append(label(t("Sound"), "page-title"))
+        self.page.append(label(t(
+            "Volume for every device and every app. “Force Mute” keeps a device silent for good: "
+            "it is set back to 0 % and muted at once and every second – even when an app "
+            "or a key turns it up."), "hint"))
 
         present = {d["key"] for d in data["outputs"] + data["inputs"]}
-        outputs = Adw.PreferencesGroup(title="Ausgabe", description="Lautsprecher, Kopfhörer, Bildschirme.")
+        outputs = Adw.PreferencesGroup(title=t("Output"), description=t("Speakers, headphones, screens."))
         for device in data["outputs"]:
             outputs.add(self.device_row(device))
         self.add_absent(outputs, "sink", present)
         self.page.append(outputs)
 
-        inputs = Adw.PreferencesGroup(title="Eingabe", description="Mikrofone.")
+        inputs = Adw.PreferencesGroup(title=t("Input"), description=t("Microphones."))
         for device in data["inputs"]:
             inputs.add(self.device_row(device))
         self.add_absent(inputs, "source", present)
         self.page.append(inputs)
 
-        apps = Adw.PreferencesGroup(title="Apps", description="Apps, die gerade Ton abspielen.")
+        apps = Adw.PreferencesGroup(title=t("Apps"), description=t("Apps playing sound right now."))
         if not data["apps"]:
-            apps.add(Adw.ActionRow(title="Gerade spielt keine App Ton ab."))
+            apps.add(Adw.ActionRow(title=t("No app is playing sound right now.")))
         targets = [d for d in data["outputs"] if d["active"]]
         for app in data["apps"]:
             apps.add(self.app_row(app, targets))
@@ -164,7 +165,7 @@ class SoundPage:
             if entry.get("kind") != kind or key in present:
                 continue
             row = Adw.ActionRow(title=entry.get("label") or key,
-                                subtitle="Nicht verbunden · bleibt stumm, sobald es auftaucht")
+                                subtitle=t("Not connected · stays silent as soon as it shows up"))
             row.add_prefix(Gtk.Image.new_from_icon_name("audio-volume-muted-symbolic"))
             row.add_suffix(self.force_switch({"key": key, "kind": kind, "label": entry.get("label"),
                                               "active": False}, True))
@@ -182,30 +183,30 @@ class SoundPage:
         names.append(Gtk.Label(label=device["label"], xalign=0, ellipsize=Pango.EllipsizeMode.END))
         detail = device["detail"]
         if not device["active"]:
-            detail = "Aus – anderes Profil der Soundkarte aktiv"
+            detail = t("Off – the sound card uses another profile")
         elif forced:
-            detail = "Force Mute – bleibt stumm"
+            detail = t("Force Mute – stays silent")
         if detail:
             names.append(Gtk.Label(label=detail, xalign=0, ellipsize=Pango.EllipsizeMode.END,
                                    css_classes=["dim-label", "caption"]))
         top.append(names)
 
         if device["active"]:
-            default = Gtk.CheckButton(label="Standard", valign=Gtk.Align.CENTER)
+            default = Gtk.CheckButton(label=t("Default"), valign=Gtk.Align.CENTER)
             default.set_active(device["default"])
             default.set_sensitive(not device["default"])
-            default.set_tooltip_text("Neue Töne laufen über dieses Gerät.")
+            default.set_tooltip_text(t("New sounds play on this device."))
             default.connect("toggled", self.on_default, device)
             top.append(default)
         else:
-            switch_on = Gtk.Button(label="Einschalten", valign=Gtk.Align.CENTER)
-            switch_on.set_tooltip_text("Stellt die Soundkarte auf das Profil mit diesem Gerät. "
-                                       "Das Standardgerät bleibt, wie es ist.")
+            switch_on = Gtk.Button(label=t("Switch on"), valign=Gtk.Align.CENTER)
+            switch_on.set_tooltip_text(t("Switches the sound card to the profile with this device. "
+                                         "The default device stays as it is."))
             switch_on.connect("clicked", self.on_switch_on, device)
             top.append(switch_on)
 
         force = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
-        force.append(Gtk.Label(label="Force Mute", css_classes=["caption"]))
+        force.append(Gtk.Label(label=t("Force Mute"), css_classes=["caption"]))
         force.append(self.force_switch(device, forced))
         top.append(force)
         box.append(top)
@@ -224,7 +225,7 @@ class SoundPage:
         top.append(self.app_icon(app))
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
         names.append(Gtk.Label(label=app["label"], xalign=0, ellipsize=Pango.EllipsizeMode.END))
-        detail = " · ".join(part for part in (app["detail"], "pausiert" if app["paused"] else "") if part)
+        detail = " · ".join(part for part in (app["detail"], t("paused") if app["paused"] else "") if part)
         if detail:
             names.append(Gtk.Label(label=detail, xalign=0, ellipsize=Pango.EllipsizeMode.END,
                                    css_classes=["dim-label", "caption"]))
@@ -234,7 +235,7 @@ class SoundPage:
         if app["sink"] in names_of and len(targets) > 1:
             output = Gtk.DropDown.new_from_strings([t["label"] for t in targets])
             output.set_valign(Gtk.Align.CENTER)
-            output.set_tooltip_text("Über welches Gerät diese App spielt.")
+            output.set_tooltip_text(t("Which device this app plays on."))
             output.set_selected(names_of.index(app["sink"]))
             output.connect("notify::selected", self.on_app_output, app, names_of)
             top.append(output)
@@ -250,7 +251,7 @@ class SoundPage:
         line = Gtk.Box(spacing=10)
         button = Gtk.ToggleButton(icon_name=mute_icon(mute), css_classes=["flat"], valign=Gtk.Align.CENTER)
         button.set_active(mute)
-        button.set_tooltip_text("Stumm")
+        button.set_tooltip_text(t("Mute"))
         scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, sound.VOLUME_MAX, 1)
         scale.set_hexpand(True)
         scale.set_draw_value(False)
@@ -268,7 +269,7 @@ class SoundPage:
 
     def force_switch(self, device: dict, forced: bool) -> Gtk.Switch:
         switch = Gtk.Switch(active=forced, valign=Gtk.Align.CENTER)
-        switch.set_tooltip_text("Hält das Gerät dauerhaft stumm, auch nach Neustart und Wiederverbinden.")
+        switch.set_tooltip_text(t("Keeps the device silent for good, also after a restart or reconnecting."))
         switch.connect("notify::active", self.on_force, device)
         return switch
 
@@ -339,11 +340,11 @@ class SoundPage:
         if self.updating or not button.get_active():
             return
         self.run(lambda: sound.set_default(device["kind"], device["name"]))
-        self.window.toast(f"Standard: {device['label']}")
+        self.window.toast(t("Default: {device}", device=device["label"]))
 
     def on_switch_on(self, _button, device: dict) -> None:
         self.run(lambda: sound.switch_on(device["card"], device["profile"]))
-        self.window.toast(f"{device['label']} eingeschaltet")
+        self.window.toast(t("{device} switched on", device=device["label"]))
 
     def on_app_output(self, dropdown: Gtk.DropDown, _param, app: dict, names: list[str]) -> None:
         if self.updating:
@@ -362,7 +363,7 @@ class SoundPage:
         self.window.cfg = cfg
         if on:
             self.run(lambda: sound.enforce(cfg))
-            self.window.toast(f"Force Mute an: {device['label']}")
+            self.window.toast(t("Force Mute on: {device}", device=device["label"]))
         else:
             self.run(lambda: sound.release(device, entry))
-            self.window.toast(f"Force Mute aus: {device['label']}")
+            self.window.toast(t("Force Mute off: {device}", device=device["label"]))

@@ -17,14 +17,15 @@ import sys
 import time
 
 from hypr_screens import config
+from hypr_screens.i18n import t
 
 GUARD_SECONDS = 1.0
 VOLUME_MAX = 100
 KINDS = ("sink", "source")
 # What a port is called on the page, by its port.type.
 PORT_LABELS = {
-    "speaker": "Laptop-Lautsprecher",
-    "headphones": "Kopfhörer (Klinke)",
+    "speaker": "Laptop speakers",
+    "headphones": "Headphones (jack)",
 }
 
 
@@ -75,16 +76,16 @@ def is_monitor(source: dict) -> bool:
 
 
 def friendly_label(description: str, card_description: str, port: dict) -> str:
-    """"Laptop-Lautsprecher" rather than "Core Ultra 200V ... HD Audio Speaker"."""
+    """"Laptop speakers" rather than "Core Ultra 200V ... HD Audio Speaker"."""
     props = port.get("properties") or {}
     port_type = str(props.get("port.type") or port.get("type") or "").lower()
     if port_type in PORT_LABELS:
-        return PORT_LABELS[port_type]
+        return t(PORT_LABELS[port_type])
     if port_type == "mic":
         # A jack has an availability group (plugged or not); the built-in mic has none.
-        return "Mikrofon (Klinke)" if props.get("port.availability-group") else "Laptop-Mikrofon"
+        return t("Microphone (jack)") if props.get("port.availability-group") else t("Laptop microphone")
     if port_type == "hdmi" and props.get("device.product.name"):
-        return f"Bildschirm {props['device.product.name']}"
+        return t("Screen {name}", name=props["device.product.name"])
     text = description
     if card_description and text.startswith(card_description):
         text = text[len(card_description):].strip()
@@ -200,7 +201,7 @@ def app_streams(inputs: list[dict], sinks: list[dict]) -> list[dict]:
     streams = []
     for stream in inputs:
         props = stream.get("properties") or {}
-        label = str(props.get("application.name") or props.get("node.name") or "Unbekannt")
+        label = str(props.get("application.name") or props.get("node.name") or t("Unknown"))
         media = str(props.get("media.name") or "")
         streams.append({
             "index": stream.get("index"),

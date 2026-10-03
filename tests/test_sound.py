@@ -69,11 +69,11 @@ def test_outputs_name_devices_and_list_switched_off_speakers_with_their_profile(
 
     assert outputs[f"{BT_CARD}:headset-output"]["label"] == "Buds3 Pro"
     assert outputs[f"{BT_CARD}:headset-output"]["default"] is True
-    assert outputs[f"{CARD}:[Out] HDMI1"]["label"] == "Bildschirm B27-9"
+    assert outputs[f"{CARD}:[Out] HDMI1"]["label"] == "Screen B27-9"
     # An unplugged jack makes no sound, so it is not offered.
     assert f"{CARD}:[Out] Headphones" not in outputs
     speaker = outputs[SPEAKER_KEY]
-    assert speaker["label"] == "Laptop-Lautsprecher"
+    assert speaker["label"] == "Laptop speakers"
     assert speaker["active"] is False and speaker["profile"] == SPEAKER_PROFILE
 
 
@@ -88,7 +88,7 @@ def test_inputs_skip_monitors_and_name_the_built_in_mic():
     mic = sink(f"{CARD}.HiFi__Mic1__source", "HD Audio Digital Microphone", "[In] Mic1", index=20)
     monitor = dict(BT, name="bluez_output.5C.1.monitor", properties={"device.class": "monitor"})
     inputs = sound.devices("source", [mic, monitor], [card()], "")
-    assert [d["label"] for d in inputs] == ["Laptop-Mikrofon"]
+    assert [d["label"] for d in inputs] == ["Laptop microphone"]
 
 
 def test_app_streams_carry_name_icon_candidates_and_output():
@@ -127,7 +127,7 @@ def test_force_mute_is_saved_with_the_volume_to_come_back_to(tmp_path, monkeypat
     config.save(cfg)
 
     entry = sound.forced(config.load())[SPEAKER_KEY]
-    assert entry == {"kind": "sink", "label": "Laptop-Lautsprecher", "volume": 50, "mute": False}
+    assert entry == {"kind": "sink", "label": "Laptop speakers", "volume": 50, "mute": False}
 
     calls = []
     monkeypatch.setattr(sound, "pactl", lambda *args: calls.append(args) or "")

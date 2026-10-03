@@ -5,7 +5,7 @@ Two small tools for [Hyprland](https://hyprland.org/), made for [Omarchy](https:
 - **hypr-minimizer** — minimize windows per desktop and get them back (last in, first out), undo, a window menu with icons, and **peek**: a minimized window slides in over your desktop without touching the layout.
 - **hypr-screens** — remembers every monitor you plug in and gives each one its own **rotation, scale, resolution and position**, optionally only while another monitor is connected. Plus **one desktop**: with an external monitor, one screen keeps a single fixed desktop and desktops 1–10 live on the other. And **sound**: volume per device and per app, and force mute that keeps a device silent. On a **Samsung Galaxy Book**: charge limit, the four performance modes and the firmware switches, like Samsung Settings on Windows.
 
-Only window keys go on the keyboard. All settings are in a window (German UI, mouse or keyboard) that opens from a **tray icon**.
+Only window keys go on the keyboard. All settings are in a window (English, German, Spanish, French or Italian; mouse or keyboard) that opens from a **tray icon**.
 
 ## Install
 

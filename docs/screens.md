@@ -9,7 +9,7 @@ Right-click: *Einstellungen öffnen* · *Festen Bildschirm tauschen* · *Beenden
 
 From a terminal: `hypr-screens settings`
 
-The window is in German and works with mouse or keyboard. Every change is saved and applied at once.
+The window speaks English, German, Spanish, French or Italian (Settings → Language; English when a text is missing) and works with mouse or keyboard. Every change is saved and applied at once. Translations live in `hypr_screens/locales.json`, keyed by the English text.
 
 ## Page "Bildschirme"
 

@@ -1,4 +1,4 @@
-"""The settings window: screens, one desktop, keys, sound, Samsung, help. Mouse and keyboard."""
+"""The settings window: screens, one desktop, keys, sound, Samsung, settings, help. Mouse and keyboard."""
 import copy
 import os
 import subprocess
@@ -11,10 +11,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from hypr_screens import config, desktops, engine, hypr, keybinds, samsung  # noqa: E402
+from hypr_screens import config, desktops, engine, hypr, i18n, keybinds, samsung  # noqa: E402
 from hypr_screens.gui import texts  # noqa: E402
 from hypr_screens.gui.samsung_page import SamsungPage  # noqa: E402
 from hypr_screens.gui.sound_page import SoundPage  # noqa: E402
+from hypr_screens.i18n import t  # noqa: E402
 
 WIDTH, HEIGHT = 1000, 720
 KEEP_SECONDS = 20
@@ -74,8 +75,9 @@ def clear(box: Gtk.Widget) -> None:
 
 
 class SettingsWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application):
-        super().__init__(application=app, title="Bildschirme & Tasten", default_width=WIDTH, default_height=HEIGHT)
+    def __init__(self, app: Adw.Application, page: str = "screens"):
+        i18n.use_configured()
+        super().__init__(application=app, title=t("Screens & keys"), default_width=WIDTH, default_height=HEIGHT)
         self.cfg = config.load()
         self.connected: set[str] = set()
         self.selected: str | None = None
@@ -97,7 +99,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         body.append(self.stack)
 
         self.pages = {}
-        for key, title, icon in texts.PAGES:
+        for key, title, icon in texts.pages():
             if key == "samsung" and not samsung.present():
                 continue
             row = Gtk.ListBoxRow()
@@ -114,7 +116,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.stack.add_named(scroller, key)
             self.pages[key] = content
         self.sidebar.connect("row-selected", lambda _box, row: row and self.stack.set_visible_child_name(row.page))
-        self.sidebar.select_row(self.sidebar.get_row_at_index(0))
+        start = next((row for row in self.sidebar_rows() if row.page == page), None)
+        self.sidebar.select_row(start or self.sidebar.get_row_at_index(0))
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_window_key)
@@ -123,6 +126,16 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.sound = SoundPage(self, self.pages["sound"])
         self.samsung = SamsungPage(self, self.pages["samsung"]) if "samsung" in self.pages else None
         GLib.timeout_add_seconds(3, self.poll)
+
+    def sidebar_rows(self) -> list[Gtk.ListBoxRow]:
+        rows, row = [], self.sidebar.get_first_child()
+        while row is not None:
+            rows.append(row)
+            row = row.get_next_sibling()
+        return rows
+
+    def current_page(self) -> str:
+        return self.stack.get_visible_child_name() or "screens"
 
     # --- data ------------------------------------------------------------------------
 
@@ -142,6 +155,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.build_screens()
         self.build_desktop()
         self.build_keys()
+        self.build_settings()
         self.build_help()
 
     def poll(self) -> bool:
@@ -155,13 +169,14 @@ class SettingsWindow(Adw.ApplicationWindow):
     def settle(self) -> None:
         self.quiet_until = time.monotonic() + SETTLE_SECONDS
 
-    def change(self, mutate, message: str = "Gespeichert und angewendet", apply: bool = True,
+    def change(self, mutate, message: str | None = None, apply: bool = True,
                confirm_screen: str | None = None) -> None:
         """Apply one change to a freshly loaded config, so a stale copy in this
         window can never overwrite what the CLI or another window saved.
 
         confirm_screen: if the change makes that screen take new values, ask
         to keep them and undo it after KEEP_SECONDS without an answer."""
+        message = message or t("Saved and applied")
         cfg = config.load()
         before = None
         if confirm_screen in cfg["screens"]:
@@ -183,7 +198,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 done = work()
                 result = message
             except Exception as error:  # shown to the user, never crash the tray
-                result = f"Fehler: {error}"
+                result = t("Error: {error}", error=error)
             GLib.idle_add(self.after_background, result, done, undo)
         threading.Thread(target=job, daemon=True).start()
 
@@ -197,17 +212,17 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     def ask_to_keep(self, sid: str, before: dict) -> None:
         """Like a display dialog: keep the new values, or they go back by themselves."""
-        dialog = Adw.AlertDialog(heading="Einstellung behalten?")
-        dialog.add_response("revert", "Zurücksetzen")
-        dialog.add_response("keep", "Behalten")
+        dialog = Adw.AlertDialog(heading=t("Keep this setting?"))
+        dialog.add_response("revert", t("Revert"))
+        dialog.add_response("keep", t("Keep"))
         dialog.set_response_appearance("keep", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("revert")
         dialog.set_close_response("revert")
         state = {"left": KEEP_SECONDS, "answered": False}
 
         def body():
-            dialog.set_body("Der Bildschirm hat die neue Einstellung übernommen.\n"
-                            f"Ohne „Behalten“ wird sie in {state['left']} s zurückgesetzt.")
+            dialog.set_body(t("The screen took the new setting.\n"
+                              "Without “Keep” it goes back in {seconds} s.", seconds=state["left"]))
 
         def tick():
             if state["answered"]:
@@ -224,7 +239,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                 return
             state["answered"] = True
             if response == "keep":
-                self.toast("Behalten")
+                self.toast(t("Kept"))
             else:
                 self.revert(sid, before)
 
@@ -238,7 +253,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             if sid not in cfg["screens"]:
                 return False
             cfg["screens"][sid]["settings"] = copy.deepcopy(before)
-        self.change(mutate, "Zurückgesetzt")
+        self.change(mutate, t("Reverted"))
 
     def toast(self, message: str) -> None:
         toast = Adw.Toast.new(message)
@@ -256,19 +271,19 @@ class SettingsWindow(Adw.ApplicationWindow):
         clear(page)
         self.building = True
         self.settle()
-        self.header(page, "Bildschirme",
-                    "Jeder Bildschirm, der schon einmal angeschlossen war. Wähle oben einen aus, um ihn "
-                    "einzustellen. Änderungen gelten sofort.")
+        self.header(page, t("Screens"),
+                    t("Every screen that was ever connected. Pick one above to set it up. "
+                      "Changes apply at once."))
 
         rows = engine.screen_rows(self.cfg, self.connected)
         ids = [row["id"] for row in rows]
         names = [
             f"{'★ ' if row['favorite'] else ''}{row['name']}  ·  "
-            f"{'● angeschlossen' if row['connected'] else '○ nicht angeschlossen'}"
+            f"{'● ' + t('connected') if row['connected'] else '○ ' + t('not connected')}"
             for row in rows
         ]
         picker = Adw.PreferencesGroup()
-        combo = combo_row("Bildschirm", names)
+        combo = combo_row(t("Screen"), names)
         combo.add_prefix(Gtk.Image.new_from_icon_name("video-display-symbolic"))
         if self.selected in ids:
             combo.set_selected(ids.index(self.selected))
@@ -295,22 +310,23 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         about = Adw.PreferencesGroup(title=screen.get("name", sid),
                                      description=screen.get("description") or "")
-        status = Adw.ActionRow(title="Status",
-                               subtitle=(f"angeschlossen an {screen.get('connector', '?')}" if connected
-                                         else f"nicht angeschlossen · zuletzt gesehen {screen.get('last_seen', '?')}"))
+        status = Adw.ActionRow(title=t("Status"),
+                               subtitle=(t("connected to {connector}", connector=screen.get("connector", "?"))
+                                         if connected else
+                                         t("not connected · last seen {when}", when=screen.get("last_seen", "?"))))
         about.add(status)
-        favorite = Adw.SwitchRow(title="Favorit", subtitle="Favoriten stehen in der Liste weiter oben.")
+        favorite = Adw.SwitchRow(title=t("Favorite"), subtitle=t("Favorites are higher up in the list."))
         favorite.set_active(bool(screen.get("favorite")))
         favorite.connect("notify::active", self.on_favorite, sid)
         about.add(favorite)
         if not screen.get("internal"):
-            forget = Gtk.Button(label="Vergessen", css_classes=["destructive-action"], valign=Gtk.Align.CENTER)
+            forget = Gtk.Button(label=t("Forget"), css_classes=["destructive-action"], valign=Gtk.Align.CENTER)
             forget.set_sensitive(not connected)
-            forget.set_tooltip_text("Erst abstecken, dann vergessen." if connected
-                                    else "Entfernt den Bildschirm und alle seine Einstellungen.")
+            forget.set_tooltip_text(t("Unplug it first, then forget it.") if connected
+                                    else t("Removes the screen and all its settings."))
             forget.connect("clicked", self.on_forget, sid)
-            row = Adw.ActionRow(title="Bildschirm vergessen",
-                                subtitle="Nur möglich, wenn er nicht angeschlossen ist.")
+            row = Adw.ActionRow(title=t("Forget screen"),
+                                subtitle=t("Only possible while it is not connected."))
             row.add_suffix(forget)
             about.add(row)
         page.append(about)
@@ -321,33 +337,33 @@ class SettingsWindow(Adw.ApplicationWindow):
             page.append(self.setting_group(sid, key))
 
     def setting_group(self, sid: str, key: str) -> Adw.PreferencesGroup:
-        title, explanation = texts.SETTINGS[key]
+        title, explanation = texts.setting_text(key)
         group = Adw.PreferencesGroup(title=title, description=explanation)
         setting = config.get_setting(self.cfg, sid, key) or {}
         screen = self.cfg["screens"][sid]
 
         values = texts.choices(key, screen, self.cfg.get("default_fixed", "off"))
         current = setting.get("value")
-        value_row = combo_row("Einstellung", [text for _v, text in values])
+        value_row = combo_row(t("Setting"), [text for _v, text in values])
         if current is None and key != "one_desktop":
-            value_row.set_subtitle("Standard = wie in deiner Hyprland-Konfiguration")
+            value_row.set_subtitle(t("Default = as in your Hyprland config"))
         value_row.set_selected(texts.index_of(values, current))
         value_row.connect("notify::selected", self.on_value, sid, key, values)
         group.add(value_row)
 
         conditions = texts.condition_choices(self.cfg, sid, self.connected, setting.get("when"))
-        when_row = combo_row("Gilt", [text for _v, text in conditions])
+        when_row = combo_row(t("Applies"), [text for _v, text in conditions])
         when_row.set_selected(texts.index_of(conditions, setting.get("when")))
         when_row.set_sensitive(current is not None)
         if current is None:
-            when_row.set_subtitle("Erst oben eine Einstellung wählen.")
+            when_row.set_subtitle(t("Pick a setting above first."))
         elif setting.get("when"):
             other = self.cfg["screens"].get(setting["when"], {}).get("name", "?")
             active = setting["when"] in self.connected
-            when_row.set_subtitle(f"Gilt nur, solange „{other}“ angeschlossen ist"
-                                  + (" – gerade aktiv." if active else " – gerade nicht aktiv."))
+            when_row.set_subtitle(t("Only while “{name}” is connected – active right now.", name=other) if active
+                                  else t("Only while “{name}” is connected – not active right now.", name=other))
         else:
-            when_row.set_subtitle("Gilt immer, egal was angeschlossen ist.")
+            when_row.set_subtitle(t("Always, whatever is connected."))
         when_row.connect("notify::selected", self.on_condition, sid, key, conditions)
         group.add(when_row)
         return group
@@ -387,16 +403,16 @@ class SettingsWindow(Adw.ApplicationWindow):
             if sid not in cfg["screens"] or bool(cfg["screens"][sid].get("favorite")) == active:
                 return False
             cfg["screens"][sid]["favorite"] = active
-        self.change(mutate, "Gespeichert", apply=False)
+        self.change(mutate, t("Saved"), apply=False)
         GLib.idle_add(lambda: self.refresh(force=True) and False)
 
     def on_forget(self, _button, sid: str) -> None:
         name = self.cfg["screens"][sid].get("name", sid)
-        dialog = Adw.AlertDialog(heading=f"„{name}“ vergessen?",
-                                 body="Der Bildschirm verschwindet aus der Liste, mit all seinen Einstellungen. "
-                                      "Steckst du ihn wieder an, taucht er neu (ohne Einstellungen) auf.")
-        dialog.add_response("cancel", "Abbrechen")
-        dialog.add_response("forget", "Vergessen")
+        dialog = Adw.AlertDialog(heading=t("Forget “{name}”?", name=name),
+                                 body=t("The screen leaves the list, with all its settings. "
+                                        "Plug it in again and it shows up anew (without settings)."))
+        dialog.add_response("cancel", t("Cancel"))
+        dialog.add_response("forget", t("Forget"))
         dialog.set_response_appearance("forget", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.connect("response", self.on_forget_answer, sid)
         dialog.present(self)
@@ -414,7 +430,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                     if setting.get("when") == sid:
                         setting["when"] = None
         self.selected = None
-        self.change(mutate, "Vergessen")
+        self.change(mutate, t("Forgotten"))
 
     # --- page: one desktop -------------------------------------------------------------------
 
@@ -423,38 +439,39 @@ class SettingsWindow(Adw.ApplicationWindow):
         clear(page)
         self.building = True
         self.settle()
-        self.header(page, "Ein Desktop",
-                    "Ist ein externer Monitor angeschlossen, kann einer der beiden Bildschirme immer denselben "
-                    "Desktop zeigen – zum Beispiel für Chat oder Musik. Die Desktops 1–10 (Super + 1…0) wechseln "
-                    "dann nur auf dem anderen Bildschirm.")
+        self.header(page, t("One desktop"),
+                    t("With an external monitor connected, one of the two screens can always show the same "
+                      "desktop – for chat or music, say. Desktops 1–10 (Super + 1…0) then only switch on the "
+                      "other screen."))
 
         status = desktops.status(self.cfg)
-        now = Adw.PreferencesGroup(title="Gerade")
+        now = Adw.PreferencesGroup(title=t("Right now"))
         row = Adw.ActionRow(title=texts.status_text(status, self.cfg))
-        swap = Gtk.Button(label="Jetzt tauschen", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        swap = Gtk.Button(label=t("Swap now"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         swap.set_sensitive(bool(status.get("external")))
-        swap.set_tooltip_text("Tauscht, welcher Bildschirm fest ist – bis du den Monitor absteckst. "
-                              "Fenster und Anordnung bleiben.")
-        swap.connect("clicked", lambda _b: self.run_in_background(lambda: desktops.swap(config.load()), "Getauscht"))
+        swap.set_tooltip_text(t("Swaps which screen is fixed – until you unplug the monitor. "
+                                "Windows and layout stay."))
+        swap.connect("clicked", lambda _b: self.run_in_background(lambda: desktops.swap(config.load()),
+                                                                  t("Swapped")))
         row.add_suffix(swap)
         now.add(row)
         page.append(now)
 
         default = Adw.PreferencesGroup(
-            title="Bei neuen Monitoren",
-            description="Welcher Bildschirm fest ist, wenn du beim Monitor selbst nichts eingestellt hast "
-                        "(„Nur ein Desktop auf diesem Bildschirm“ unter Bildschirme).")
-        choices = texts.DEFAULT_FIXED
-        combo = combo_row("Fest ist", [text for _v, text in choices])
+            title=t("For new monitors"),
+            description=t("Which screen is fixed when the monitor itself has nothing set "
+                          "(“Only one desktop on this screen” under Screens)."))
+        choices = texts.default_fixed_choices()
+        combo = combo_row(t("Fixed is"), [text for _v, text in choices])
         combo.set_selected(texts.index_of(choices, self.cfg["default_fixed"]))
         combo.connect("notify::selected", self.on_default_fixed, choices)
         default.add(combo)
         page.append(default)
 
-        keys = Adw.PreferencesGroup(title="Desktop-Tasten")
+        keys = Adw.PreferencesGroup(title=t("Desktop keys"))
         switch = Adw.SwitchRow(
-            title="Super + 1…0 und Super + Tab über hypr-screens",
-            subtitle="Nötig, damit die Desktops auf dem richtigen Bildschirm landen. Aus = normales Hyprland.")
+            title=t("Super + 1…0 and Super + Tab through hypr-screens"),
+            subtitle=t("Needed so the desktops land on the right screen. Off = plain Hyprland."))
         switch.set_active(bool(self.cfg["desktop_keys"]))
         switch.connect("notify::active", self.on_desktop_keys)
         keys.add(switch)
@@ -483,35 +500,36 @@ class SettingsWindow(Adw.ApplicationWindow):
         config.save(cfg)
         self.cfg = cfg
         keybinds.write(cfg)
-        self.run_in_background(lambda: (keybinds.go_live(old, cfg), engine.sync()), "Gespeichert und angewendet")
+        self.run_in_background(lambda: (keybinds.go_live(old, cfg), engine.sync()), t("Saved and applied"))
 
     # --- page: keys ----------------------------------------------------------------------------
 
     def build_keys(self) -> None:
         page = self.pages["keys"]
         clear(page)
-        self.header(page, "Tasten",
-                    "Hier stellst du die Tasten für die Fenster ein. Jede Aktion kann zwei Tasten haben. "
-                    "Klicke auf eine Taste und drücke dann die neue Kombination.")
+        self.header(page, t("Keys"),
+                    t("Set the keys for the windows here. Each action can have two keys. "
+                      "Click a key, then press the new combination."))
         group = Adw.PreferencesGroup()
         for action in texts.actions():
-            row = Adw.ActionRow(title=texts.ACTION_LABELS[action], subtitle=texts.ACTION_HELP[action])
+            row = Adw.ActionRow(title=texts.action_label(action), subtitle=texts.action_help(action))
             for slot, combo in enumerate(self.cfg["keybinds"][action]):
                 button = Gtk.Button(label=texts.combo_label(combo), valign=Gtk.Align.CENTER, css_classes=["keycap"])
-                button.set_tooltip_text("Klicken, dann neue Tasten drücken")
+                button.set_tooltip_text(t("Click, then press the new keys"))
                 button.connect("clicked", self.on_key_clicked, action, slot)
                 row.add_suffix(button)
             group.add(row)
         page.append(group)
-        page.append(label("Tipp: In der Aufnahme löscht die Rücktaste eine Taste, Esc bricht ab.", "hint"))
+        page.append(label(t("Tip: while recording, Backspace removes a key, Esc cancels."), "hint"))
 
     def on_key_clicked(self, _button, action: str, slot: int) -> None:
-        dialog = Adw.Dialog(title="Neue Taste", content_width=460)
+        dialog = Adw.Dialog(title=t("New key"), content_width=460)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                       margin_top=24, margin_bottom=24, margin_start=24, margin_end=24)
-        box.append(label(f"{texts.ACTION_LABELS[action]} – Taste {slot + 1}", "page-title", xalign=0.5))
-        box.append(label("Drücke jetzt die neue Tastenkombination.", "capture", xalign=0.5))
-        box.append(label("Rücktaste = Taste entfernen · Esc = Abbrechen", "hint", xalign=0.5))
+        box.append(label(t("{action} – key {number}", action=texts.action_label(action), number=slot + 1),
+                         "page-title", xalign=0.5))
+        box.append(label(t("Press the new key combination now."), "capture", xalign=0.5))
+        box.append(label(t("Backspace = remove key · Esc = cancel"), "hint", xalign=0.5))
         dialog.set_child(box)
 
         controller = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
@@ -568,18 +586,19 @@ class SettingsWindow(Adw.ApplicationWindow):
     def set_key(self, action: str, slot: int, combo: str) -> None:
         taken = keybinds.taken_by_us(self.cfg, combo, except_slot=(action, slot)) if combo else None
         if taken:
-            self.toast(f"{texts.combo_label(combo)} ist schon für „{texts.label_for(taken)}“ vergeben.")
+            self.toast(t("{key} is already used for “{action}”.", key=texts.combo_label(combo),
+                         action=texts.label_for(taken)))
             return
         others = keybinds.conflicts(combo) if combo else []
         if not others:
             self.store_key(action, slot, combo)
             return
         dialog = Adw.AlertDialog(
-            heading="Diese Taste ist schon belegt",
-            body=f"{texts.combo_label(combo)} macht gerade: {', '.join(others)}.\n"
-                 f"Soll sie stattdessen „{texts.ACTION_LABELS[action]}“ machen?")
-        dialog.add_response("cancel", "Abbrechen")
-        dialog.add_response("replace", "Ersetzen")
+            heading=t("This key is already taken"),
+            body=t("{key} does this right now: {current}.\nShould it do “{action}” instead?",
+                   key=texts.combo_label(combo), current=", ".join(others), action=texts.action_label(action)))
+        dialog.add_response("cancel", t("Cancel"))
+        dialog.add_response("replace", t("Replace"))
         dialog.set_response_appearance("replace", Adw.ResponseAppearance.SUGGESTED)
         dialog.connect("response", lambda _d, answer: answer == "replace" and self.store_key(action, slot, combo))
         dialog.present(self)
@@ -592,22 +611,53 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.cfg = cfg
         keybinds.write(cfg)
         self.run_in_background(lambda: keybinds.go_live(old, cfg),
-                               "Taste gespeichert" if combo else "Taste entfernt")
+                               t("Key saved") if combo else t("Key removed"))
+
+    # --- page: settings --------------------------------------------------------------------------
+
+    def build_settings(self) -> None:
+        page = self.pages["settings"]
+        clear(page)
+        self.building = True
+        self.settle()
+        self.header(page, t("Settings"), t("Settings of this app."))
+        group = Adw.PreferencesGroup()
+        codes = list(i18n.LANGUAGES)
+        combo = combo_row(t("Language"), [i18n.LANGUAGES[code] for code in codes])
+        combo.add_prefix(Gtk.Image.new_from_icon_name("preferences-desktop-locale-symbolic"))
+        combo.set_subtitle(t("Texts missing in a language are shown in English."))
+        combo.set_selected(codes.index(i18n.language()) if i18n.language() in codes else 0)
+        combo.connect("notify::selected", self.on_language, codes)
+        group.add(combo)
+        page.append(group)
+        self.building = False
+
+    def on_language(self, combo: Adw.ComboRow, _param, codes: list[str]) -> None:
+        if not self.user_input():
+            return
+        code = codes[combo.get_selected()]
+        if code == i18n.language():
+            return
+        cfg = config.load()
+        cfg["language"] = code
+        config.save(cfg)
+        # Every page, the sidebar and the title are built from texts: build the window anew.
+        GLib.idle_add(lambda: self.get_application().reopen_settings("settings") and False)
 
     # --- page: help --------------------------------------------------------------------------------
 
     def build_help(self) -> None:
         page = self.pages["help"]
         clear(page)
-        self.header(page, "Hilfe", "Was wo ist – in drei Sätzen.")
-        for title, text in texts.HELP:
+        self.header(page, t("Help"), t("What is where – in a few sentences."))
+        for title, text in texts.help_items():
             group = Adw.PreferencesGroup(title=title)
             group.add(self.text_row(text))
             page.append(group)
         buttons = Gtk.Box(spacing=12)
-        docs = Gtk.Button(label="Ausführliche Anleitung öffnen")
+        docs = Gtk.Button(label=t("Open the full guide"))
         docs.connect("clicked", lambda _b: self.open_uri(DOCS_URL))
-        folder = Gtk.Button(label="Einstellungsordner öffnen")
+        folder = Gtk.Button(label=t("Open the settings folder"))
         folder.connect("clicked", lambda _b: self.open_uri(config.config_file().parent.as_uri()))
         buttons.append(docs)
         buttons.append(folder)
