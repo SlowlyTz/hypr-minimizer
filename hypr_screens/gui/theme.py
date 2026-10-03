@@ -99,7 +99,7 @@ def css(colors: dict, radius: int = 0, family: str = "monospace") -> str:
 window, dialog, popover, .card, button, entry, row, list, .navigation-sidebar {{
   font-family: "{family}";
 }}
-.card, list.boxed-list, button, popover > contents, dialog .dialog-contents, .screen-card {{
+.card, list.boxed-list, button, popover > contents, dialog .dialog-contents {{
   border-radius: {radius}px;
 }}
 list.boxed-list {{ border: 1px solid alpha({fg}, 0.15); }}
@@ -107,8 +107,6 @@ list.boxed-list {{ border: 1px solid alpha({fg}, 0.15); }}
 .navigation-sidebar row:selected {{ background: alpha({fg}, 0.08); color: {accent}; }}
 .page-title {{ font-size: 1.4em; font-weight: bold; }}
 .hint {{ color: {muted}; }}
-.screen-card {{ padding: 10px 16px; background: alpha({fg}, 0.04); border: 1px solid alpha({fg}, 0.12); }}
-.screen-card:checked {{ background: alpha({fg}, 0.10); border-color: {accent}; color: {accent}; }}
 .status-on {{ color: {colors["green"]}; }}
 .status-off {{ color: {muted}; }}
 .keycap {{ padding: 4px 10px; min-width: 150px; }}

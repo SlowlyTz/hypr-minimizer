@@ -257,41 +257,36 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.building = True
         self.settle()
         self.header(page, "Bildschirme",
-                    "Jeder Bildschirm, der schon einmal angeschlossen war. Klicke einen an, um ihn einzustellen. "
-                    "Änderungen gelten sofort.")
+                    "Jeder Bildschirm, der schon einmal angeschlossen war. Wähle oben einen aus, um ihn "
+                    "einzustellen. Änderungen gelten sofort.")
 
-        cards = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=10, row_spacing=10,
-                            max_children_per_line=4, homogeneous=True)
-        group = None
-        for row in engine.screen_rows(self.cfg, self.connected):
-            button = Gtk.ToggleButton(css_classes=["screen-card"])
-            if group is None:
-                group = button
-            else:
-                button.set_group(group)
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            top = Gtk.Box(spacing=8)
-            top.append(Gtk.Image.new_from_icon_name("computer" if row["internal"] else "video-display-symbolic"))
-            top.append(Gtk.Label(label=row["name"], xalign=0, hexpand=True, ellipsize=3))
-            if row["favorite"]:
-                top.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
-            box.append(top)
-            state = "● angeschlossen" if row["connected"] else "○ nicht angeschlossen"
-            box.append(label(state, "status-on" if row["connected"] else "status-off", wrap=False))
-            button.set_child(box)
-            button.set_active(row["id"] == self.selected)
-            button.connect("toggled", self.on_screen_picked, row["id"])
-            cards.append(button)
-        page.append(cards)
+        rows = engine.screen_rows(self.cfg, self.connected)
+        ids = [row["id"] for row in rows]
+        names = [
+            f"{'★ ' if row['favorite'] else ''}{row['name']}  ·  "
+            f"{'● angeschlossen' if row['connected'] else '○ nicht angeschlossen'}"
+            for row in rows
+        ]
+        picker = Adw.PreferencesGroup()
+        combo = combo_row("Bildschirm", names)
+        combo.add_prefix(Gtk.Image.new_from_icon_name("video-display-symbolic"))
+        if self.selected in ids:
+            combo.set_selected(ids.index(self.selected))
+        combo.connect("notify::selected", self.on_screen_picked, ids)
+        picker.add(combo)
+        page.append(picker)
 
         if self.selected:
             self.build_screen_detail(page, self.selected)
         self.building = False
 
-    def on_screen_picked(self, button: Gtk.ToggleButton, sid: str) -> None:
-        if self.building or not button.get_active() or sid == self.selected:
+    def on_screen_picked(self, combo: Adw.ComboRow, _param, ids: list[str]) -> None:
+        if self.building:
             return
-        self.selected = sid
+        index = combo.get_selected()
+        if index >= len(ids) or ids[index] == self.selected:
+            return
+        self.selected = ids[index]
         GLib.idle_add(lambda: self.build_screens() and False)
 
     def build_screen_detail(self, page: Gtk.Box, sid: str) -> None:
