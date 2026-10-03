@@ -25,7 +25,7 @@ The setup wizard asks for your shortcuts and writes everything else. Details: [d
 | `SUPER + .` | window menu (`-` = peek) |
 | tray icon | settings: screens, one desktop, keys, sound, Samsung |
 
-Everything else: **[docs/](docs/README.md)** — [daily cheat sheet](docs/daily.md) · [minimizer](docs/minimizer.md) · [screens](docs/screens.md) · [one desktop](docs/one-desktop.md) · [keys](docs/keys.md) · [sound](docs/sound.md) · [samsung](docs/samsung.md) · [personalization](docs/personalization.md) · [troubleshooting](docs/troubleshooting.md)
+Everything else: **[docs/](docs/README.md)** — [daily cheat sheet](docs/daily.md) · [minimizer](docs/minimizer.md) · [screens](docs/screens.md) · [one desktop](docs/one-desktop.md) · [keys](docs/keys.md) · [sound](docs/sound.md) · [samsung](docs/samsung.md) · [personalization](docs/personalization.md) · [camera](docs/camera.md) · [troubleshooting](docs/troubleshooting.md)
 
 ## Requirements
 

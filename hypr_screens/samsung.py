@@ -16,13 +16,12 @@ with the four modes (install.sync_power_panel).
 import getpass
 import json
 import os
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
 from hypr_screens import config
+from hypr_screens.root import run_as_root
 
 SYSFS = Path("/sys")
 DRIVER = "samsung-galaxybook"
@@ -424,17 +423,6 @@ def is_set_up() -> bool:
 def active() -> bool:
     """Samsung control is on: a Galaxy Book, and the one-time setup is done."""
     return present() and is_set_up()
-
-
-def run_as_root(text: str, graphical: bool) -> bool:
-    """pkexec (password dialog) from the window, sudo from a terminal."""
-    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as script:
-        script.write(text)
-    try:
-        elevate = ["pkexec"] if graphical or not shutil.which("sudo") else ["sudo"]
-        return subprocess.run([*elevate, "/bin/sh", script.name], check=False).returncode == 0
-    finally:
-        os.unlink(script.name)
 
 
 def setup(graphical: bool = False) -> bool:

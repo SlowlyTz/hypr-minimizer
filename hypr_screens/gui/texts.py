@@ -15,6 +15,7 @@ PAGE_LIST = [
     ("keys", "Keys", "input-keyboard-symbolic"),
     ("sound", "Sound", "audio-volume-high-symbolic"),
     ("samsung", "Samsung", "computer-symbolic"),
+    ("camera", "Camera", "camera-web-symbolic"),
     ("personalization", "Personalization", "applications-graphics-symbolic"),
     ("settings", "Settings", "preferences-system-symbolic"),
     ("help", "Help", "help-about-symbolic"),

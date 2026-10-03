@@ -67,6 +67,7 @@ def default_config() -> dict:
         "samsung": {"limit": None, "mode": None, "full_once": False},
         "language": "en",
         "look": {},
+        "camera": {"rotation": 0, "enabled": True},
     }
 
 
@@ -123,6 +124,11 @@ def normalize(raw: object) -> dict:
     from hypr_screens import look  # look imports hypr only; kept local to stay light
 
     cfg["look"] = look.normalize(raw.get("look"))
+    camera = raw.get("camera") if isinstance(raw.get("camera"), dict) else {}
+    if camera.get("rotation") in (0, 90, 180, 270) and not isinstance(camera.get("rotation"), bool):
+        cfg["camera"]["rotation"] = camera["rotation"]
+    if isinstance(camera.get("enabled"), bool):
+        cfg["camera"]["enabled"] = camera["enabled"]
     return cfg
 
 

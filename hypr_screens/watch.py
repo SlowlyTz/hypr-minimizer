@@ -1,6 +1,7 @@
 """Background watcher: re-sync on monitor hotplug and config reloads, keep
-force-muted sound devices silent (sound.guard) and hold the Samsung charge
-limit and performance mode (samsung.guard), each in its own thread.
+force-muted sound devices silent (sound.guard), hold the Samsung charge
+limit and performance mode (samsung.guard) and feed the virtual camera
+(camera.guard), each in its own thread.
 
 A hotplug arrives as a burst of events and settles over a moment, so events are
 collected until SETTLE_SECONDS pass quietly, then one sync runs.
@@ -12,7 +13,7 @@ import sys
 import threading
 from pathlib import Path
 
-from hypr_screens import config, engine, install, samsung, sound
+from hypr_screens import camera, config, engine, install, samsung, sound
 
 SETTLE_SECONDS = 1.0
 EVENTS = {
@@ -62,6 +63,7 @@ def watch() -> int:
 
     threading.Thread(target=sound.guard, daemon=True).start()
     threading.Thread(target=samsung.guard, daemon=True).start()
+    threading.Thread(target=camera.guard, daemon=True).start()
     try:
         log(f"battery panel: {install.sync_power_panel(samsung.active())}")
     except Exception as error:  # the bar is a nicety; the watcher must run

@@ -92,6 +92,25 @@ def power(args: argparse.Namespace) -> int:
     return 0
 
 
+def camera_command(args: argparse.Namespace) -> int:
+    from hypr_screens import camera, config
+
+    if args.action == "status":
+        print(json.dumps({"set_up": camera.is_set_up(), "virtual": str(camera.virtual_device() or ""),
+                          "real": str(camera.real_device() or ""), "rotation": camera.rotation()}, indent=2))
+        return 0
+    if args.action in ("setup", "teardown"):
+        work = camera.setup if args.action == "setup" else camera.teardown
+        return 0 if work(graphical=not sys.stdin.isatty()) else 1
+    if args.degrees not in camera.ROTATIONS:
+        print(f"hypr-screens: rotation must be one of {camera.ROTATIONS}", file=sys.stderr)
+        return 1
+    cfg = config.load()
+    cfg["camera"]["rotation"] = args.degrees
+    config.save(cfg)
+    return 0
+
+
 def samsung_command(args: argparse.Namespace) -> int:
     from hypr_screens import config, samsung
 
@@ -182,6 +201,9 @@ def build_parser() -> argparse.ArgumentParser:
     cycle = sub.add_parser("cycle", help="focus the next visible window")
     cycle.add_argument("direction", nargs="?", choices=["prev"])
     sub.add_parser("status", help="fixed screen status as JSON")
+    cam = sub.add_parser("camera", help="the turned virtual camera: status | setup | teardown | rotate 0|90|180|270")
+    cam.add_argument("action", choices=["status", "setup", "teardown", "rotate"])
+    cam.add_argument("degrees", nargs="?", type=int)
     power = sub.add_parser("power", help="performance mode, used by the battery panel: list | set MODE")
     power.add_argument("action", choices=["list", "set"])
     power.add_argument("mode", nargs="?")
@@ -245,6 +267,8 @@ def run(args: argparse.Namespace) -> int:
 
         print(json.dumps(desktops.status(config.load())))
         return 0
+    if command == "camera":
+        return camera_command(args)
     if command == "power":
         return power(args)
     if command == "samsung":

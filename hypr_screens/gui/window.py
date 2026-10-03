@@ -13,6 +13,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from hypr_screens import config, desktops, engine, hypr, i18n, keybinds, samsung  # noqa: E402
 from hypr_screens.gui import texts  # noqa: E402
+from hypr_screens.gui.camera_page import CameraPage  # noqa: E402
 from hypr_screens.gui.personalization_page import PersonalizationPage  # noqa: E402
 from hypr_screens.gui.samsung_page import SamsungPage  # noqa: E402
 from hypr_screens.gui.sound_page import SoundPage  # noqa: E402
@@ -127,6 +128,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.sound = SoundPage(self, self.pages["sound"])
         self.samsung = SamsungPage(self, self.pages["samsung"]) if "samsung" in self.pages else None
         self.personalization = PersonalizationPage(self, self.pages["personalization"])
+        self.camera = CameraPage(self, self.pages["camera"])
         GLib.timeout_add_seconds(3, self.poll)
 
     def sidebar_rows(self) -> list[Gtk.ListBoxRow]:
