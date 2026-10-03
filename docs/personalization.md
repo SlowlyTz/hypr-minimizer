@@ -8,6 +8,10 @@ Gaps between windows and at the screen edge, corner rounding, border width, blur
 
 - Nothing changes while you move the sliders. **Apply** (in the bar at the bottom of the window, always in reach) shows the new look; a dialog asks **Keep?** and puts the old look back after 15 seconds without an answer.
 - **Presets** (Clean, Soft, Glass) only fill in the sliders.
+- **Border colors:** "Own border colors" draws the active window's border as a gradient of two colors (with transparency) at an angle; off, the theme's border is back.
+- **Animation speed:** Omarchy's animations (from its `looknfeel.lua`, and yours where you changed one) run 0.25× to 3× as fast.
+- **See-through apps:** pick an open app and give its windows their own transparency, for the active window and the others (a window rule by window class).
+- Taking app rules or the own border back takes a short reload of Hyprland; everything else changes live.
 - **Reset to Omarchy default** (next to Apply) forgets the look; the Omarchy theme decides again (Hyprland reloads its config for that).
 
 The look is saved in `~/.config/hypr-screens/config.json` under `look` and written into `~/.config/hypr/hypr_screens.lua`, which loads after the Omarchy theme and so wins over it.
