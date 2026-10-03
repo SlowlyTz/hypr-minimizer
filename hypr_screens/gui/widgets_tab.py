@@ -29,10 +29,10 @@ DEBOUNCE_MS = 300
 LOOK = ["color", "colors", "font", "effect", "card", "opacity"]
 VISIBILITY = ("Visibility", ["desktops", "only_empty", "hide_on_battery", "above"])
 SECTIONS = {
-    "visualizer": [("Placement", ["where", "screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["bars", "style"]),
+    "visualizer": [("Placement", ["where", "screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["player", "bars", "style"]),
                    ("Look", LOOK)],
-    "lyrics": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["highlight", "lines", "hide_paused"]),
-               ("Look", ["align", *LOOK])],
+    "lyrics": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["player", "highlight", "lines", "hide_paused"]),
+               ("Look", ["align", "current_size", "scroll_ms", *LOOK])],
     "clock": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["clock_style", "hours", "seconds", "date_group", "zone2"]),
               ("Look", LOOK)],
     "system": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
@@ -76,13 +76,15 @@ SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "s
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
                "card_radius": ("Corners", 2, " px"), "card_padding": ("Room around", 2, " px"),
-               "card_opacity": ("Card opacity", 5, " %")}
+               "card_opacity": ("Card opacity", 5, " %"), "scroll_ms": ("Scroll time", 50, " ms"),
+               "current_size": ("Size of the line being sung", 5, " %")}
 # Whole numbers typed in (or stepped with − and +): key: title; the range is widgets.RANGES.
 NUMBER_ROWS = {"lines": "Lines"}
 HINTS = {
     "highlight": "Word by word follows the singing; most songs only have times per line, "
                  "then the words are spread over the line.",
     "same_place": "Off: arrange it on each screen on its own.",
+    "player": "With an app picked, only its music counts – the visualizer then hears only that app.",
 }
 DESCRIPTIONS = {
     "visualizer": "Bars that move with the sound playing right now.",
@@ -338,6 +340,14 @@ class WidgetsTab:
             row = Adw.EntryRow(title=t("Own pattern, e.g. dd.MM.yyyy or dddd d MMMM"), text=widget["date_pattern"],
                                show_apply_button=True)
             row.connect("apply", lambda e: self.change(kind, lambda w: w.__setitem__("date_pattern", e.get_text())))
+            return row
+        if key == "player":
+            values = ["", *widgets.players()]
+            if widget["player"] and widget["player"] not in values:
+                values.append(widget["player"])
+            row = combo(t("React to"), [t("Whatever plays") if not v else v.replace("_", " ").title() for v in values],
+                        values.index(widget["player"]))
+            row.connect("notify::selected", self.on_choice, kind, "player", values)
             return row
         if key == "zone2":
             zones = ["", *sorted(widgets.time_zones())]

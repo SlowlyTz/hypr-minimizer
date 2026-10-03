@@ -168,3 +168,11 @@ def test_clock_styles_dates_and_zones():
                                                                                              "Europe/Rome", False)
     assert len(clock["date_pattern"]) == 60
     assert widgets.normalize({"clock": {"clock_style": "sundial", "zone2": "Nowhere/Land"}})["clock"]["zone2"] == ""
+
+
+def test_media_player_and_lyrics_motion():
+    state = widgets.normalize({"lyrics": {"player": "Spotify", "scroll_ms": 5, "current_size": 999},
+                               "visualizer": {"player": "bad name!"}})
+    assert state["lyrics"]["player"] == "spotify" and state["visualizer"]["player"] == ""
+    assert (state["lyrics"]["scroll_ms"], state["lyrics"]["current_size"]) == (150, 170)
+    assert "source = spotify" in widgets.cava_config(32, "spotify")

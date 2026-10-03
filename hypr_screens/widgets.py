@@ -43,6 +43,9 @@ STYLE = {"font_family": "", "font_weight": "bold", "letter_spacing": 0, "effect"
 # the fixed screen), only while its desktop has no window, not on battery;
 # above the windows instead of behind them.
 FIXED_DESKTOP = 99
+# A media player by the first part of its MPRIS name ("spotify" for
+# org.mpris.MediaPlayer2.spotify); "" follows whichever plays.
+PLAYER_KEY = re.compile(r"^[a-z0-9_-]{1,60}$")
 VISIBILITY = {"desktops": [], "only_empty": False, "hide_on_battery": False, "above": False}
 # One place on every screen, or (same_place off) a place per screen id in
 # "spots"; a screen without one uses the widget's own place.
@@ -80,10 +83,10 @@ PARTS = {
 CENTER = {"x": 0.5, "y": 0.5, "rotation": 0}
 ALL_SCREENS = {"mode": "all", "screen": ""}
 BASE = {
-    "visualizer": {"enabled": False, "where": "both", "monitors": ALL_SCREENS, "bars": 32, "style": "bottom",
+    "visualizer": {"enabled": False, "where": "both", "monitors": ALL_SCREENS, "player": "", "bars": 32, "style": "bottom",
                    "color": "accent", "opacity": 100, "size": 160, "width": 0, "placed": False, **CENTER},
-    "lyrics": {"enabled": False, "monitors": ALL_SCREENS, "highlight": "line", "align": "center", "lines": 3,
-               "hide_paused": False, "color": "accent", "opacity": 100, "size": 200, "width": 0,
+    "lyrics": {"enabled": False, "monitors": ALL_SCREENS, "player": "", "highlight": "line", "align": "center",
+               "lines": 3, "hide_paused": False, "scroll_ms": 550, "current_size": 115, "color": "accent", "opacity": 100, "size": 200, "width": 0,
                "placed": False, **CENTER},
     "clock": {"enabled": False, "monitors": ALL_SCREENS, "clock_style": "digital", "hours": "24", "date": True,
               "seconds": False, "weekday": True, "date_format": "long", "date_pattern": "", "zone2": "",
@@ -110,6 +113,7 @@ TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "sys
 LOCALES = {"en": "en_US", "de": "de_DE", "es": "es_ES", "fr": "fr_FR", "it": "it_IT"}
 # key: (minimum, maximum)
 RANGES = {"bars": (8, 64), "lines": (1, 10), "opacity": (20, 100), "rotation": (-360, 360),
+          "scroll_ms": (150, 1500), "current_size": (100, 170),
           "letter_spacing": (-2, 20), "effect_strength": (0, 100), "card_radius": (0, 60), "card_padding": (0, 80),
           "card_opacity": (5, 100)}
 # The visualizer's and the lyrics' size is their height in pixels (the lyrics'
@@ -191,6 +195,9 @@ def normalize(raw: object) -> dict:
             elif key in RANGES:
                 widget[key] = number(given.get(key), *RANGES[key], default)
         widget["font_family"] = str(given.get("font_family") or "")[:100]
+        if "player" in defaults:
+            player = str(given.get("player") or "").lower()
+            widget["player"] = player if PLAYER_KEY.match(player) else ""
         if kind == "clock":
             widget["date_pattern"] = str(given.get("date_pattern") or "")[:60]
             zone = str(given.get("zone2") or "")
@@ -249,7 +256,43 @@ def font() -> str:
         return ""
 
 
-def cava_config(bars: int) -> str:
+def players() -> list[str]:
+    """The media players there are now (MPRIS names, first part)."""
+    try:
+        out = subprocess.run(["busctl", "--user", "list", "--no-legend"], capture_output=True, text=True,
+                             timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    found = []
+    for line in out.splitlines():
+        name = line.split()[0] if line.split() else ""
+        if name.startswith("org.mpris.MediaPlayer2."):
+            key = name.removeprefix("org.mpris.MediaPlayer2.").split(".")[0].lower()
+            if PLAYER_KEY.match(key) and key not in found:
+                found.append(key)
+    return sorted(found)
+
+
+def audio_source(player: str) -> str:
+    """What cava listens to: everything, or one app's sound (its PipeWire
+    stream, found by app name; the player's own name until it plays)."""
+    if not player:
+        return "auto"
+    try:
+        nodes = json.loads(subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=3).stdout or "[]")
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        nodes = []
+    for node in nodes:
+        props = (node.get("info") or {}).get("props") or {}
+        if props.get("media.class") != "Stream/Output/Audio":
+            continue
+        names = [str(props.get(k) or "").lower() for k in ("node.name", "application.name", "application.process.binary")]
+        if any(player in name for name in names if name):
+            return str(props.get("node.name") or player)
+    return player
+
+
+def cava_config(bars: int, source: str = "auto") -> str:
     """cava prints one line per frame: bar values 0..1000 separated by ';'.
     It sleeps after 2 s of silence, so the visualizer costs nothing then."""
     return "\n".join([
@@ -260,7 +303,7 @@ def cava_config(bars: int) -> str:
         "autosens = 1",
         "[input]",
         "method = pipewire",
-        "source = auto",
+        f"source = {source}",
         "[output]",
         "method = raw",
         "raw_target = /dev/stdout",
@@ -279,13 +322,15 @@ def export(cfg: dict) -> None:
     widgets = normalize(cfg.get("widgets"))
     directory = settings_file().parent
     directory.mkdir(parents=True, exist_ok=True)
-    cava = cava_config(widgets["visualizer"]["bars"])
+    cava = cava_config(widgets["visualizer"]["bars"], audio_source(widgets["visualizer"]["player"]))
     if not cava_file().exists() or cava_file().read_text() != cava:
         cava_file().write_text(cava)
     language = i18n.set_language(cfg.get("language"))
     data = {
         "widgets": widgets,
         "cava": str(cava_file()),
+        # Changes with the visualizer's player, so the plugin restarts cava.
+        "cavaSource": cava.split("source = ")[1].split("\n")[0],
         "cpuTemperature": cpu_temperature_file(),
         "font": font(),
         "locale": LOCALES.get(language, "en_US"),

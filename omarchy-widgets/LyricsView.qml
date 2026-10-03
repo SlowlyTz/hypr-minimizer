@@ -40,8 +40,10 @@ Item {
   readonly property real slot: height / Math.max(1, shownLines)
   // The font fills most of its slot; long lines go down to half of it.
   readonly property real fontSize: Math.max(8, Math.floor(slot * 0.6))
-  // The other lines are a little smaller than the one being sung.
-  readonly property real restScale: 0.88
+  // The other lines are smaller than the one being sung (current_size: how
+  // much bigger it is, in percent).
+  readonly property real restScale: 100 / (settings ? settings.current_size : 115)
+  readonly property int scrollMs: settings ? settings.scroll_ms : 550
 
   implicitWidth: spot && spot.width > 0 ? spot.width : 720
   implicitHeight: spot ? spot.size : 200
@@ -54,15 +56,33 @@ Item {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   }
 
-  // The line being sung with the words sung so far in the accent color.
+  // The line being sung: the words sung so far in their color, the word
+  // being sung filling up letter by letter (the letter on the edge blended).
   function wordLine(index, time) {
     var words = view.service ? view.service.wordsFor(index) : []
     if (!words.length) return view.escaped(view.shown[index] ? view.shown[index].text : "")
-    var sung = view.cssColor(view.paint("sung", view.tint))
-    var waiting = view.cssColor(view.paint("waiting", Color.foreground))
+    var sungColor = view.paint("sung", view.tint)
+    var waitingColor = view.paint("waiting", Color.foreground)
+    var sung = view.cssColor(sungColor)
+    var waiting = view.cssColor(waitingColor)
+    var now = time + 0.1
     var out = []
     for (var i = 0; i < words.length; i++) {
-      out.push('<font color="' + (words[i].t <= time + 0.1 ? sung : waiting) + '">' + view.escaped(words[i].text) + "</font>")
+      var w = words[i]
+      if (now >= w.end) out.push('<font color="' + sung + '">' + view.escaped(w.text) + "</font>")
+      else if (now <= w.t) out.push('<font color="' + waiting + '">' + view.escaped(w.text) + "</font>")
+      else {
+        var filled = (now - w.t) / Math.max(0.05, w.end - w.t) * w.text.length
+        var whole = Math.floor(filled)
+        var edge = filled - whole
+        var mixed = view.cssColor(Qt.rgba(sungColor.r * edge + waitingColor.r * (1 - edge),
+                                          sungColor.g * edge + waitingColor.g * (1 - edge),
+                                          sungColor.b * edge + waitingColor.b * (1 - edge),
+                                          sungColor.a * edge + waitingColor.a * (1 - edge)))
+        out.push('<font color="' + sung + '">' + view.escaped(w.text.slice(0, whole)) + "</font>"
+                 + '<font color="' + mixed + '">' + view.escaped(w.text.slice(whole, whole + 1)) + "</font>"
+                 + '<font color="' + waiting + '">' + view.escaped(w.text.slice(whole + 1)) + "</font>")
+      }
     }
     return out.join(" ")
   }
@@ -93,7 +113,7 @@ Item {
     y: view.columnY
     Behavior on y {
       enabled: !view.jumping
-      NumberAnimation { duration: 550; easing.type: Easing.OutCubic }
+      NumberAnimation { duration: view.scrollMs; easing.type: Easing.OutCubic }
     }
 
     Repeater {
@@ -129,8 +149,8 @@ Item {
         font.letterSpacing: view.look.spacing * view.fontSize / 30
         style: view.look.outline ? Text.Outline : Text.Normal
         styleColor: view.look.outline ? view.look.outlineColor : "transparent"
-        Behavior on opacity { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: view.scrollMs * 0.8; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: view.scrollMs * 0.8; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 350 } }
       }
     }

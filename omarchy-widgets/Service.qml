@@ -29,6 +29,7 @@ Item {
   readonly property string wallpaper: Quickshell.env("HOME") + "/.local/state/omarchy/current/background"
   property var widgets: ({})
   property string cavaConfig: ""
+  property string cavaSource: "auto"
   property string cpuTemperatureFile: ""
   property string fontFamily: ""
   // Texts in the settings window's language, and its locale for the date.
@@ -62,8 +63,10 @@ Item {
     var data
     try { data = JSON.parse(String(text)) } catch (e) { return }
     var bars = root.widget("visualizer") ? root.widget("visualizer").bars : 0
+    var source = root.cavaSource
     root.widgets = data.widgets || {}
     root.cavaConfig = String(data.cava || "")
+    root.cavaSource = String(data.cavaSource || "auto")
     root.cpuTemperatureFile = String(data.cpuTemperature || "")
     root.fontFamily = String(data.font || "")
     root.texts = data.texts || {}
@@ -72,7 +75,7 @@ Item {
     if (data.kinds) root.kinds = data.kinds
     root.parts = data.parts || {}
     if (!root.editing) root.draft = root.placementsFromSettings()
-    if (root.widget("visualizer") && root.widget("visualizer").bars !== bars) root.restartCava()
+    if (root.widget("visualizer") && (root.widget("visualizer").bars !== bars || root.cavaSource !== source)) root.restartCava()
   }
 
   FileView {
@@ -252,6 +255,10 @@ Item {
   Process {
     id: cava
     command: ["setpriv", "--pdeathsig", "TERM", "cava", "-p", root.cavaConfig]
+    // Only ever what plays here, never the microphone: without its player's
+    // stream cava ends instead of falling back to the default input, and is
+    // started again below until the player plays.
+    environment: ({ PIPEWIRE_PROPS: "{ node.dont-fallback = true }" })
     running: false
     stdout: SplitParser { onRead: function(line) { root.takeFrame(line) } }
     onExited: if (root.cavaWanted) cavaRestart.restart()
@@ -322,10 +329,20 @@ Item {
   property var lyricsCache: ({})
   readonly property bool lyricsWanted: root.enabled("lyrics")
 
-  // The player that plays; while none does, the one from before, else one
-  // that looks like music (a track with an album) rather than a video.
-  function pickPlayer() {
-    var players = Mpris.players ? Mpris.players.values : []
+  // A player's key: the first part of its MPRIS name ("spotify").
+  function playerKey(p) {
+    var name = String(p && p.dbusName ? p.dbusName : "").replace("org.mpris.MediaPlayer2.", "")
+    return name.split(".")[0].toLowerCase()
+  }
+  // The player that plays (only `key`'s, when one is chosen); while none
+  // does, the one from before, else one that looks like music (a track with
+  // an album) rather than a video.
+  function pickPlayer(key) {
+    var all = Mpris.players ? Mpris.players.values : []
+    var players = []
+    for (var a = 0; a < all.length; a++) {
+      if (!key || root.playerKey(all[a]) === key) players.push(all[a])
+    }
     for (var i = 0; i < players.length; i++) {
       if (players[i].isPlaying) return players[i]
     }
@@ -345,7 +362,7 @@ Item {
     repeat: true
     running: root.lyricsWanted
     onTriggered: {
-      var next = root.pickPlayer()
+      var next = root.pickPlayer(root.widget("lyrics") ? root.widget("lyrics").player : "")
       if (next !== root.player) root.player = next
       var p = root.player
       if (!p) { root.trackKey = ""; root.lyricLines = []; root.lyricsState = "none"; root.playing = false; return }
@@ -418,17 +435,23 @@ Item {
   function wordsFor(index) {
     var line = root.lyricLines[index]
     if (!line) return []
-    if (line.words) return line.words
+    var lineEnd = index + 1 < root.lyricLines.length ? root.lyricLines[index + 1].t : line.t + 6
+    if (line.words) {
+      // Each word lasts until the next one (the last one up to a second).
+      return line.words.map(function(w, i, all) {
+        return { t: w.t, text: w.text, end: i + 1 < all.length ? all[i + 1].t : Math.min(lineEnd, w.t + 1) }
+      })
+    }
     var words = String(line.text).split(/\s+/).filter(function(w) { return w !== "" })
-    var next = index + 1 < root.lyricLines.length ? root.lyricLines[index + 1].t : line.t + 6
     var letters = 0
     for (var i = 0; i < words.length; i++) letters += words[i].length + 1
-    var duration = Math.min((next - line.t) * 0.9, Math.max(1.2, letters * 0.1))
+    var duration = Math.min((lineEnd - line.t) * 0.9, Math.max(1.2, letters * 0.1))
     var out = []
     var time = line.t
     for (var k = 0; k < words.length; k++) {
-      out.push({ t: time, text: words[k] })
-      time += duration * (words[k].length + 1) / letters
+      var next = time + duration * (words[k].length + 1) / letters
+      out.push({ t: time, text: words[k], end: next })
+      time = next
     }
     return out
   }
