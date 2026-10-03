@@ -66,6 +66,7 @@ def default_config() -> dict:
         "sound": {"force_mute": {}},
         "samsung": {"limit": None, "mode": None, "full_once": False},
         "language": "en",
+        "look": {},
     }
 
 
@@ -119,6 +120,9 @@ def normalize(raw: object) -> dict:
     cfg["samsung"]["full_once"] = bool(samsung.get("full_once"))
     if raw.get("language") in LANGUAGE_CODES:
         cfg["language"] = raw["language"]
+    from hypr_screens import look  # look imports hypr only; kept local to stay light
+
+    cfg["look"] = look.normalize(raw.get("look"))
     return cfg
 
 

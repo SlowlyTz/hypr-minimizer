@@ -11,7 +11,7 @@ reload would reset the monitor settings for a moment.
 import os
 from pathlib import Path
 
-from hypr_screens import config, desktops, hypr
+from hypr_screens import config, desktops, hypr, look
 
 RECORD_SUBMAP = "hypr-screens-record"
 # The settings window (gui/app.py APP_ID, gui/window.py WIDTH x HEIGHT).
@@ -190,6 +190,9 @@ def render(cfg: dict, runtime: bool = False) -> str:
                 lines += bind_line(f"{mods} + code:{code}", f"hypr-screens {command} {index}", label)
         for combo, command, label in CYCLE_BINDS:
             lines += bind_line(combo, f"hypr-screens {command}", label)
+    window_look = look.lua_table(cfg.get("look") or {})
+    if window_look:
+        lines += ["", "-- Window look from Personalization → Window (overrides the Omarchy theme).", window_look]
     lines += [
         "",
         "-- Empty keymap used while the menu records a new shortcut, so keys that are",

@@ -31,6 +31,25 @@ def table_keys() -> set[str]:
     keys |= set(sound.PORT_LABELS.values())
     keys |= {label for _mode, label, _cpu in samsung.MODES} | set(samsung.ATTRIBUTES.values())
     keys |= set(texts.MODE_HINTS.values()) | set(texts.BATTERY_ROWS.values())
+    keys |= personalization_keys()
+    return keys
+
+
+def personalization_keys() -> set[str]:
+    """The page's tables, read without importing GTK."""
+    from hypr_screens import look
+
+    source = (ROOT / "gui" / "personalization_page.py").read_text()
+    tree = ast.parse(source)
+    keys = set(look.PRESETS)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and node.targets[0].id in ("SLIDERS", "GROUPS"):
+            value = ast.literal_eval(node.value)
+            if isinstance(value, dict):
+                for title, subtitle, _percent in value.values():
+                    keys |= {text for text in (title, subtitle) if text}
+            else:
+                keys |= {title for title, _keys in value}
     return keys
 
 

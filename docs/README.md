@@ -15,4 +15,5 @@ Two tools, one repo:
 | change a shortcut | [keys.md](keys.md) |
 | control sound per device and app, force mute | [sound.md](sound.md) |
 | charge limit and performance mode on a Samsung Galaxy Book | [samsung.md](samsung.md) |
+| change gaps, rounding, blur and transparency of windows | [personalization.md](personalization.md) |
 | fix something | [troubleshooting.md](troubleshooting.md) |
