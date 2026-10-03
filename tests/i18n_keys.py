@@ -23,6 +23,8 @@ def table_keys() -> set[str]:
     from hypr_screens.gui import texts
 
     keys = {title for _key, title, _icon in texts.PAGE_LIST}
+    keys |= {title for title, _pages in texts.SECTIONS if title}
+    keys |= set(texts.INTROS.values()) | set(texts.SEARCH_WORDS.values())
     for title, explanation in texts.SETTINGS.values():
         keys |= {title, explanation}
     keys |= set(texts.ACTION_HELP.values()) | set(texts.ACTION_LABELS.values())
@@ -39,12 +41,10 @@ def personalization_keys() -> set[str]:
     """The page's tables, read without importing GTK."""
     from hypr_screens import look
 
-    source = (ROOT / "gui" / "personalization_page.py").read_text()
+    source = (ROOT / "gui" / "look_page.py").read_text()
     tree = ast.parse(source)
     keys = set(look.PRESETS)
     for node in tree.body:
-        if isinstance(node, ast.Assign) and node.targets[0].id == "CARDS":
-            keys |= {text for _page, title, caption, _icon in ast.literal_eval(node.value) for text in (title, caption)}
         if isinstance(node, ast.Assign) and node.targets[0].id in ("SLIDERS", "GROUPS"):
             value = ast.literal_eval(node.value)
             if isinstance(value, dict):

@@ -1,11 +1,9 @@
-"""The "Personalization" page: first just two big buttons, "Window" (gaps,
-rounding, border, blur, opacity) and "Widgets" (gui/widgets_tab.py); each
-opens its own page with a back button (a widget's page goes back to Widgets).
-Window's Apply and Reset sit in the
-window's footer, so they stay in reach while scrolling.
+"""The "Windows" page (Appearance): gaps, rounding, border, blur, opacity,
+border colors, animation speed and see-through apps. Apply and Reset sit in
+the page's bottom bar, so they stay in reach while scrolling.
 
-Window: the sliders change nothing until "Apply"; then a dialog asks to keep
-the look and puts the old one back after KEEP_SECONDS without an answer.
+The sliders change nothing until "Apply"; then a dialog asks to keep the look
+and puts the old one back after KEEP_SECONDS without an answer.
 """
 import gi
 
@@ -13,8 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from hypr_screens import config, hypr, keybinds, look, widgets  # noqa: E402
-from hypr_screens.gui.widgets_tab import WidgetsTab  # noqa: E402
+from hypr_screens import config, hypr, keybinds, look  # noqa: E402
 from hypr_screens.i18n import t  # noqa: E402
 
 KEEP_SECONDS = 15
@@ -29,11 +26,6 @@ SLIDERS = {
     "active_opacity": ("Active window", "", True),
     "inactive_opacity": ("Other windows", "", True),
 }
-# The two buttons the page starts with: (page, title, text, icon).
-CARDS = [
-    ("window", "Window", "Gaps, corners, borders, blur and transparency.", "window-new-symbolic"),
-    ("widgets", "Widgets", "Visualizer, lyrics, clock and system on the desktop.", "view-grid-symbolic"),
-]
 GROUPS = [
     ("Gaps", ["gaps_in", "gaps_out"]),
     ("Shape", ["rounding", "border_size"]),
@@ -54,58 +46,16 @@ def shown(key: str, value: object) -> str:
     return f"{value} px" if key in ("gaps_in", "gaps_out", "rounding", "border_size") else str(value)
 
 
-class PersonalizationPage:
-    def __init__(self, window, page: Gtk.Box):
+class LookPage:
+    def __init__(self, window, page: Gtk.Box, footer: Gtk.Box):
         self.window = window
-        self.page = page
+        self.window_tab = page
         self.values: dict = {}
         self.live: dict = {}
         self.controls: dict = {}
         self.updating = False
-        self.build()
 
-    def build(self) -> None:
-        self.nav = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT, vhomogeneous=False,
-                             interpolate_size=True)
-        self.page.append(self.nav)
-
-        home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        home.append(label(t("Personalization"), "page-title"))
-        home.append(label(t("Pick what to change."), "hint"))
-        cards = Gtk.Box(spacing=14, homogeneous=True)
-        for key, title, text, icon in CARDS:
-            button = Gtk.Button(css_classes=["nav-card"])
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=18, margin_bottom=18,
-                          margin_start=12, margin_end=12)
-            image = Gtk.Image.new_from_icon_name(icon)
-            image.set_pixel_size(48)
-            box.append(image)
-            box.append(Gtk.Label(label=t(title), css_classes=["nav-card-title"]))
-            caption = label(t(text), "hint")
-            caption.set_xalign(0.5)
-            caption.set_justify(Gtk.Justification.CENTER)
-            box.append(caption)
-            button.set_child(box)
-            button.connect("clicked", lambda _b, page=key: self.open(page))
-            cards.append(button)
-        home.append(cards)
-        self.nav.add_named(home, "home")
-
-        self.window_tab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        self.widgets_tab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        self.nav.add_named(self.subpage(t("Window"), self.window_tab), "window")
-        self.nav.add_named(self.subpage(t("Widgets"), self.widgets_tab), "widgets")
-        widget_pages, color_pages = {}, {}
-        for kind in widgets.KINDS:
-            widget_pages[kind] = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-            self.nav.add_named(self.subpage(t(widgets.TITLES[kind]), widget_pages[kind], back="widgets"),
-                               f"widget-{kind}")
-            color_pages[kind] = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-            self.nav.add_named(self.subpage(t("{widget}: colors", widget=t(widgets.TITLES[kind])), color_pages[kind],
-                                            back=f"widget-{kind}"), f"widget-{kind}-colors")
-
-        # The dock: Apply and Reset stay visible while the sliders scroll.
-        footer = self.window.footers["personalization"]
+        # The bottom bar: Apply and Reset stay visible while the sliders scroll.
         self.reset_button = Gtk.Button(label=t("Reset to Omarchy default"))
         self.reset_button.set_tooltip_text(t("Forgets this look; the Omarchy theme decides again."))
         self.reset_button.connect("clicked", self.on_reset)
@@ -114,28 +64,8 @@ class PersonalizationPage:
         self.apply_button = Gtk.Button(label=t("Apply"), css_classes=["suggested-action"])
         self.apply_button.connect("clicked", self.on_apply)
         footer.append(self.apply_button)
-
+        footer.set_visible(True)
         self.build_window_tab()
-        self.widgets = WidgetsTab(self.window, self.widgets_tab, widget_pages, color_pages, self.open)
-        self.open("home")
-
-    def subpage(self, title: str, body: Gtk.Box, back: str = "home") -> Gtk.Box:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        header = Gtk.Box(spacing=8)
-        button = Gtk.Button(icon_name="go-previous-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
-        button.set_tooltip_text(t("Back"))
-        button.connect("clicked", lambda _b: self.open(back))
-        header.append(button)
-        header.append(label(title, "page-title"))
-        box.append(header)
-        box.append(body)
-        return box
-
-    def open(self, name: str) -> None:
-        self.nav.set_visible_child_name(name)
-        self.window.footers["personalization"].set_visible(name == "window")
-        adjustment = self.window.scrollers["personalization"].get_vadjustment()
-        adjustment.set_value(adjustment.get_lower())
 
     # --- tab: window -----------------------------------------------------------------
 

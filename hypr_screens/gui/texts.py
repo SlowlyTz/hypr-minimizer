@@ -8,22 +8,66 @@ and go through i18n.t(), so they are looked up again whenever they are shown.
 from hypr_screens import config
 from hypr_screens.i18n import t
 
-# (key, title, icon). "samsung" only on a Samsung Galaxy Book (samsung.present()).
-PAGE_LIST = [
-    ("screens", "Screens", "video-display-symbolic"),
-    ("desktop", "One desktop", "view-dual-symbolic"),
-    ("keys", "Keys", "input-keyboard-symbolic"),
-    ("sound", "Sound", "audio-volume-high-symbolic"),
-    ("samsung", "Samsung", "computer-symbolic"),
-    ("camera", "Camera", "camera-web-symbolic"),
-    ("personalization", "Personalization", "applications-graphics-symbolic"),
-    ("settings", "Settings", "preferences-system-symbolic"),
-    ("help", "Help", "help-about-symbolic"),
+# The sidebar: sections of pages, (key, title, icon). "samsung" only on a
+# Samsung Galaxy Book (samsung.present()). The last section has no title.
+SECTIONS = [
+    ("System", [
+        ("screens", "Screens", "video-display-symbolic"),
+        ("desktop", "Fixed screen", "view-dual-symbolic"),
+        ("keys", "Shortcuts", "input-keyboard-symbolic"),
+    ]),
+    ("Devices", [
+        ("sound", "Sound", "audio-volume-high-symbolic"),
+        ("camera", "Camera", "camera-web-symbolic"),
+        ("samsung", "Samsung", "computer-symbolic"),
+    ]),
+    ("Appearance", [
+        ("window", "Windows", "window-new-symbolic"),
+        ("widgets", "Widgets", "view-grid-symbolic"),
+    ]),
+    ("", [
+        ("general", "General", "preferences-system-symbolic"),
+    ]),
 ]
+PAGE_LIST = [page for _section, pages in SECTIONS for page in pages]
+# Old page names (tray, CLI, reopening the window) and where they live now.
+LEGACY_PAGES = {"personalization": "widgets", "settings": "general", "help": "general"}
+# One sentence under each page's title.
+INTROS = {
+    "screens": "Every screen that was ever connected. Changes apply at once.",
+    "desktop": "With a monitor connected, one screen can always show the same desktop – "
+               "for chat or music. Desktops 1–10 then switch only on the other one.",
+    "keys": "Click a key, then press the new combination. Each action can have two.",
+    "sound": "Volume for every device and every app. “Force Mute” keeps a device silent for good – "
+             "even when an app or a key turns it up.",
+    "camera": "Turns the camera for every app: pick “{name}” as the camera there. "
+              "The camera only runs while an app uses it.",
+    "samsung": "The settings Samsung Settings has on Windows. Changes apply at once and stay after a restart.",
+    "window": "Gaps, corners, borders, blur and transparency of the windows.",
+    "widgets": "Widgets sit on the desktop behind the windows.",
+    "general": "Language, help and where the settings are.",
+}
+# More words a page is found by in the search (comma separated, translated).
+SEARCH_WORDS = {
+    "screens": "monitor, display, rotation, resolution, scaling, refresh rate",
+    "desktop": "one desktop, workspace, swap, desktop keys",
+    "keys": "keyboard, hotkey, keybind, minimize, hide window",
+    "sound": "volume, audio, speaker, headphones, microphone, mute",
+    "camera": "webcam, video, rotate camera",
+    "samsung": "battery, charge limit, fan, performance, galaxy book",
+    "window": "gaps, rounding, border, blur, transparency, opacity, animation",
+    "widgets": "desktop, clock, lyrics, visualizer, weather, calendar",
+    "general": "language, help, guide, settings folder",
+}
 
 
 def pages() -> list[tuple[str, str, str]]:
     return [(key, t(title), icon) for key, title, icon in PAGE_LIST]
+
+
+def sections() -> list[tuple[str, list[tuple[str, str, str]]]]:
+    return [(t(title) if title else "", [(key, t(page), icon) for key, page, icon in items])
+            for title, items in SECTIONS]
 
 
 def as_configured() -> str:
@@ -49,7 +93,7 @@ SETTINGS = {
     ),
     "one_desktop": (
         "Only one desktop on this screen",
-        "The screen always shows the same desktop; desktops 1–10 live on the other one. See “One desktop”.",
+        "The screen always shows the same desktop; desktops 1–10 live on the other one. See “Fixed screen”.",
     ),
 }
 

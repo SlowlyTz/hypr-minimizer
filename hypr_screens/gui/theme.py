@@ -107,9 +107,13 @@ list.boxed-list {{ border: 1px solid alpha({fg}, 0.15); }}
 .navigation-sidebar row:selected {{ background: alpha({fg}, 0.08); color: {accent}; }}
 .page-title {{ font-size: 1.4em; font-weight: bold; }}
 .hint {{ color: {muted}; }}
-.page-footer {{ border-top: 1px solid alpha({fg}, 0.12); padding-top: 10px; }}
-.nav-card {{ padding: 6px; }}
-.nav-card-title {{ font-size: 1.2em; font-weight: bold; }}
+.page-footer {{ padding: 2px 0; }}
+.sidebar-section {{ font-size: 0.8em; font-weight: bold; color: {muted}; padding: 16px 14px 4px 14px; }}
+.sidebar-separator {{ margin: 10px 12px; background: alpha({fg}, 0.1); }}
+.result-path {{ font-size: 0.82em; }}
+.search-results row {{ padding: 8px 12px; }}
+.search-hit {{ background: alpha({accent}, 0.18); box-shadow: inset 0 0 0 2px alpha({accent}, 0.7);
+              transition: background 300ms, box-shadow 300ms; }}
 .status-on {{ color: {colors["green"]}; }}
 .status-off {{ color: {muted}; }}
 .keycap {{ padding: 4px 10px; min-width: 150px; }}

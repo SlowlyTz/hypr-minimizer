@@ -8,6 +8,7 @@ Two tools, one repo:
 | I want to… | Read |
 |---|---|
 | install it | [install.md](install.md) |
+| find my way around the settings window, search it | [settings-window.md](settings-window.md) |
 | know the keys and commands I use every day | [daily.md](daily.md) |
 | minimize, restore, peek windows | [minimizer.md](minimizer.md) |
 | rotate/scale/position a monitor | [screens.md](screens.md) |

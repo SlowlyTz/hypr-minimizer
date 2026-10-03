@@ -42,7 +42,7 @@ class CameraPage:
         GLib.timeout_add(REQUEST_MS, self.keep_requesting)
 
     def shown(self) -> bool:
-        return self.window.get_visible() and self.window.stack.get_visible_child_name() == "camera"
+        return self.window.get_visible() and self.window.current_page() == "camera"
 
     # --- building ----------------------------------------------------------------------
 
@@ -54,9 +54,6 @@ class CameraPage:
             child = following
         self.updating = True
         cfg = config.load()
-        self.page.append(label(t("Camera"), "page-title"))
-        self.page.append(label(t("Turns the camera for every app: pick “{name}” as the camera there. "
-                                 "The camera only runs while an app uses it.", name=camera.CARD_LABEL), "hint"))
         if not self.set_up:
             self.page.append(self.setup_group())
         else:

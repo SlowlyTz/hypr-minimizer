@@ -61,7 +61,7 @@ class SamsungPage:
         self.refresh()
 
     def shown(self) -> bool:
-        return self.window.get_visible() and self.window.stack.get_visible_child_name() == "samsung"
+        return self.window.get_visible() and self.window.current_page() == "samsung"
 
     def tick(self) -> bool:
         if self.shown() and not self.busy:
@@ -112,10 +112,6 @@ class SamsungPage:
         self.values.clear()
         self.controls.clear()
         state = self.state
-        product = samsung.read(samsung.SYSFS / "class/dmi/id/product_family") or "Galaxy Book"
-        self.page.append(label(t("Samsung"), "page-title"))
-        self.page.append(label(t("{product}: the settings Samsung Settings has on Windows. "
-                                 "Changes apply at once and stay after a restart.", product=product), "hint"))
         if not state["writable"]:
             self.page.append(self.setup_group())
         self.page.append(self.battery_group())

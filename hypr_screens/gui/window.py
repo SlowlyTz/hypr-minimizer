@@ -1,9 +1,18 @@
-"""The settings window: screens, one desktop, keys, sound, Samsung, settings, help. Mouse and keyboard."""
+"""The settings window: a sidebar of pages in sections (System, Devices,
+Appearance, General) with a search on top, and the page on the right.
+
+Every place is a "destination": a page with its title bar, its content and,
+if it needs one, a bar at the bottom that does not scroll away. Pages can
+have pages under them (a widget's page, its colors); the title bar then has
+a back button. navigate(key) opens any of them, also from the search, which
+finds pages, groups and rows by their titles (gui/search.py).
+"""
 import copy
 import os
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 
 import gi
 
@@ -11,12 +20,13 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from hypr_screens import config, desktops, engine, hypr, i18n, keybinds, samsung  # noqa: E402
-from hypr_screens.gui import texts  # noqa: E402
+from hypr_screens import camera, config, desktops, engine, hypr, i18n, keybinds, samsung  # noqa: E402
+from hypr_screens.gui import search, texts  # noqa: E402
 from hypr_screens.gui.camera_page import CameraPage  # noqa: E402
-from hypr_screens.gui.personalization_page import PersonalizationPage  # noqa: E402
+from hypr_screens.gui.look_page import LookPage  # noqa: E402
 from hypr_screens.gui.samsung_page import SamsungPage  # noqa: E402
 from hypr_screens.gui.sound_page import SoundPage  # noqa: E402
+from hypr_screens.gui.widgets_tab import WidgetsTab  # noqa: E402
 from hypr_screens.i18n import t  # noqa: E402
 
 WIDTH, HEIGHT = 1000, 720
@@ -26,6 +36,8 @@ MONITOR_KEYS = {"rotation", "scale", "mode", "position"}
 # signals within this time are not user input and must never touch settings.
 SETTLE_SECONDS = 0.6
 DOCS_URL = "https://github.com/SlowlyTz/hypr-minimizer/tree/master/docs"
+# How long a place found by the search stays marked.
+HIT_MS = 1800
 
 
 def label(text: str, *classes: str, wrap: bool = True, xalign: float = 0.0) -> Gtk.Label:
@@ -76,6 +88,28 @@ def clear(box: Gtk.Widget) -> None:
         child = following
 
 
+def children(widget: Gtk.Widget):
+    child = widget.get_first_child()
+    while child is not None:
+        yield child
+        child = child.get_next_sibling()
+
+
+@dataclass
+class Destination:
+    key: str
+    title: str
+    section: str
+    parent: str | None
+    icon: str
+    page: Adw.NavigationPage
+    box: Gtk.Box               # what the page builds into
+    footer: Gtk.Box            # the bar at the bottom (hidden unless filled)
+    viewport: Gtk.Viewport
+    words: str = ""            # more words the search finds it by
+    intro: str = ""            # the sentence under its title
+
+
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, page: str = "screens"):
         i18n.use_configured()
@@ -86,70 +120,287 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.building = False
         self.quiet_until = 0.0
         self.capture = None
+        self.dest: dict[str, Destination] = {}
+        self.pages: dict[str, Gtk.Box] = {}
+        self.footers: dict[str, Gtk.Box] = {}
+        self.navigating = False
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
-        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.toasts.set_child(body)
+        self.split = Adw.NavigationSplitView(min_sidebar_width=230, max_sidebar_width=270,
+                                             sidebar_width_fraction=0.26)
+        self.toasts.set_child(self.split)
+        self.split.set_sidebar(self.build_sidebar())
+        self.content = Adw.NavigationView()
+        self.content.connect("notify::visible-page", self.on_visible_page)
+        self.split.set_content(Adw.NavigationPage(title=t("Settings"), child=self.content))
 
-        self.sidebar = Gtk.ListBox(css_classes=["navigation-sidebar"], width_request=220)
-        self.sidebar.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        body.append(self.sidebar)
-        body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        for section, items in texts.sections():
+            for key, title, icon in items:
+                if key == "samsung" and not samsung.present():
+                    continue
+                self.add_destination(key, title, icon=icon, section=section, words=t(texts.SEARCH_WORDS[key]),
+                                     intro=t(texts.INTROS[key], name=camera.CARD_LABEL))
+                self.add_sidebar_row(key, title, icon, section)
 
-        self.stack = Gtk.Stack(hexpand=True, vexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
-        body.append(self.stack)
-
-        self.pages = {}
-        # A bar under each page that does not scroll away (hidden unless a page fills it).
-        self.footers = {}
-        self.scrollers = {}
-        for key, title, icon in texts.pages():
-            if key == "samsung" and not samsung.present():
-                continue
-            row = Gtk.ListBoxRow()
-            row.page = key
-            box = Gtk.Box(spacing=12)
-            box.append(Gtk.Image.new_from_icon_name(icon))
-            box.append(Gtk.Label(label=title, xalign=0))
-            row.set_child(box)
-            self.sidebar.append(row)
-            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
-                              margin_top=24, margin_bottom=24, margin_start=28, margin_end=28)
-            scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
-            scroller.set_child(Adw.Clamp(maximum_size=780, child=content))
-            footer = Gtk.Box(spacing=12, visible=False, css_classes=["page-footer"],
-                             margin_top=10, margin_bottom=10, margin_start=28, margin_end=28)
-            column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-            column.append(scroller)
-            column.append(footer)
-            self.stack.add_named(column, key)
-            self.pages[key] = content
-            self.footers[key] = footer
-            self.scrollers[key] = scroller
-        self.sidebar.connect("row-selected", lambda _box, row: row and self.stack.set_visible_child_name(row.page))
-        start = next((row for row in self.sidebar_rows() if row.page == page), None)
-        self.sidebar.select_row(start or self.sidebar.get_row_at_index(0))
-
-        keys = Gtk.EventControllerKey()
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_window_key)
         self.add_controller(keys)
         self.refresh(force=True)
         self.sound = SoundPage(self, self.pages["sound"])
         self.samsung = SamsungPage(self, self.pages["samsung"]) if "samsung" in self.pages else None
-        self.personalization = PersonalizationPage(self, self.pages["personalization"])
+        self.look = LookPage(self, self.pages["window"], self.footers["window"])
+        self.widgets = WidgetsTab(self, self.pages["widgets"])
         self.camera = CameraPage(self, self.pages["camera"])
+        start = texts.LEGACY_PAGES.get(page, page)
+        self.navigate(start if start in self.dest else "screens")
         GLib.timeout_add_seconds(3, self.poll)
 
-    def sidebar_rows(self) -> list[Gtk.ListBoxRow]:
-        rows, row = [], self.sidebar.get_first_child()
-        while row is not None:
-            rows.append(row)
-            row = row.get_next_sibling()
-        return rows
+    # --- places ------------------------------------------------------------------------
+
+    def add_destination(self, key: str, title: str, parent: str | None = None, icon: str = "",
+                        section: str = "", words: str = "", intro: str = "") -> Gtk.Box:
+        """A page (under `parent`, if given); returns the box its content goes into."""
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22,
+                        margin_top=18, margin_bottom=28, margin_start=28, margin_end=28)
+        if intro:
+            outer.append(label(intro, "hint", "page-intro"))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
+        outer.append(box)
+        viewport = Gtk.Viewport(scroll_to_focus=True, child=Adw.Clamp(maximum_size=720, child=outer))
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True, child=viewport)
+        toolbar = Adw.ToolbarView(content=scroller)
+        toolbar.add_top_bar(Adw.HeaderBar())
+        footer = Gtk.Box(spacing=12, visible=False, css_classes=["page-footer"],
+                         margin_top=10, margin_bottom=10, margin_start=28, margin_end=28)
+        toolbar.add_bottom_bar(footer)
+        page = Adw.NavigationPage(title=title, tag=key, child=toolbar)
+        parent_dest = self.dest.get(parent) if parent else None
+        self.dest[key] = Destination(key, title, parent_dest.section if parent_dest else section, parent,
+                                     icon or (parent_dest.icon if parent_dest else ""), page, box, footer,
+                                     viewport, words, intro)
+        self.pages[key] = box
+        self.footers[key] = footer
+        return box
+
+    def path(self, key: str) -> list[str]:
+        """The titles above a place, outermost first: its section, then its parents."""
+        titles, dest = [], self.dest[key]
+        while dest.parent:
+            dest = self.dest[dest.parent]
+            titles.insert(0, dest.title)
+        return ([dest.section] if dest.section else []) + titles
+
+    def chain(self, key: str) -> list[Destination]:
+        out, dest = [], self.dest[key]
+        while dest:
+            out.insert(0, dest)
+            dest = self.dest.get(dest.parent) if dest.parent else None
+        return out
+
+    def navigate(self, key: str, target: Gtk.Widget | None = None) -> None:
+        """Open a page (with the pages above it to go back to) and show `target` on it."""
+        if key not in self.dest:
+            return
+        chain = self.chain(key)
+        self.navigating = True
+        row = next((r for r in self.sidebar_rows() if r.page == chain[0].key), None)
+        if row is not None and self.sidebar.get_selected_row() is not row:
+            self.sidebar.select_row(row)
+        self.navigating = False
+        now = [page.get_tag() for page in self.stack_pages()]
+        wanted = [dest.key for dest in chain]
+        if now == wanted[:-1]:
+            self.content.push(chain[-1].page)
+        elif now != wanted:
+            self.content.replace([dest.page for dest in chain])
+        if target is not None:
+            GLib.timeout_add(260, self.reveal, target)
+
+    def stack_pages(self) -> list[Adw.NavigationPage]:
+        model = self.content.get_navigation_stack()
+        return [model.get_item(i) for i in range(model.get_n_items())]
+
+    def reveal(self, target: Gtk.Widget) -> bool:
+        """Show what the search found in the middle of the page and mark it for a moment."""
+        expander = target.get_ancestor(Adw.ExpanderRow)
+        if expander is not None and expander is not target and not expander.get_expanded():
+            expander.set_expanded(True)
+            GLib.timeout_add(320, self.reveal, target)  # once it has unfolded
+            return False
+        viewport = target.get_ancestor(Gtk.Viewport)
+        if viewport is not None:
+            ok, bounds = target.compute_bounds(viewport.get_child())
+            adjustment = viewport.get_vadjustment()
+            if ok and adjustment is not None:
+                middle = bounds.get_y() - (adjustment.get_page_size() - bounds.get_height()) / 2
+                top = adjustment.get_upper() - adjustment.get_page_size()
+                adjustment.set_value(max(adjustment.get_lower(), min(top, middle)))
+        target.add_css_class("search-hit")
+        GLib.timeout_add(HIT_MS, lambda: (target.remove_css_class("search-hit"), False)[1])
+        return False
 
     def current_page(self) -> str:
-        return self.stack.get_visible_child_name() or "screens"
+        """The page shown now (its key)."""
+        page = self.content.get_visible_page()
+        return page.get_tag() if page is not None else "screens"
+
+    current_destination = current_page
+
+    def on_visible_page(self, *_args) -> None:
+        # The camera, sound and Samsung pages follow what is shown.
+        page = self.content.get_visible_page()
+        if page is not None:
+            self.set_title(f"{page.get_title()} – {t('Screens & keys')}")
+
+    # --- sidebar and search -------------------------------------------------------------
+
+    def build_sidebar(self) -> Adw.NavigationPage:
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_end_title_buttons=False)
+        header.set_title_widget(Adw.WindowTitle(title="hypr-screens"))
+        view.add_top_bar(header)
+        self.search = Gtk.SearchEntry(placeholder_text=t("Search"), margin_start=12, margin_end=12,
+                                      margin_bottom=8, hexpand=True)
+        self.search.connect("search-changed", self.on_search)
+        self.search.connect("activate", self.on_search_enter)
+        self.search.connect("stop-search", lambda _e: self.search.set_text(""))
+        self.search.set_key_capture_widget(self)
+        down = Gtk.EventControllerKey()
+        down.connect("key-pressed", self.on_search_key)
+        self.search.add_controller(down)
+        view.add_top_bar(self.search)
+
+        self.sidebar = Gtk.ListBox(css_classes=["navigation-sidebar"])
+        self.sidebar.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.sidebar.set_header_func(self.section_header)
+        self.sidebar.connect("row-selected", self.on_sidebar_row)
+        self.results = Gtk.ListBox(css_classes=["navigation-sidebar", "search-results"])
+        self.results.set_selection_mode(Gtk.SelectionMode.BROWSE)
+        self.results.connect("row-activated", lambda _list, row: self.open_result(row.result))
+        nothing = label(t("Nothing found. Try another word."), "hint", xalign=0.5)
+        nothing.set_margin_top(24)
+        nothing.set_margin_start(16)
+        nothing.set_margin_end(16)
+        self.results.set_placeholder(nothing)
+
+        self.side_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
+        self.side_stack.add_named(Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, child=self.sidebar),
+                                  "pages")
+        self.side_stack.add_named(Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, child=self.results),
+                                  "results")
+        view.set_content(self.side_stack)
+        return Adw.NavigationPage(title="hypr-screens", child=view)
+
+    def add_sidebar_row(self, key: str, title: str, icon: str, section: str) -> None:
+        row = Gtk.ListBoxRow()
+        row.page = key
+        row.section = section
+        box = Gtk.Box(spacing=12)
+        box.append(Gtk.Image.new_from_icon_name(icon))
+        box.append(Gtk.Label(label=title, xalign=0))
+        row.set_child(box)
+        self.sidebar.append(row)
+
+    @staticmethod
+    def section_header(row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None) -> None:
+        if before is not None and before.section == row.section:
+            row.set_header(None)
+        elif row.section:
+            row.set_header(Gtk.Label(label=row.section, xalign=0, css_classes=["sidebar-section"]))
+        else:
+            row.set_header(Gtk.Separator(css_classes=["sidebar-separator"]))
+
+    def on_sidebar_row(self, _box, row) -> None:
+        if row is not None and not self.navigating:
+            self.navigate(row.page)
+
+    def sidebar_rows(self) -> list[Gtk.ListBoxRow]:
+        # The section headers are children of the list too.
+        return [row for row in children(self.sidebar) if isinstance(row, Gtk.ListBoxRow)]
+
+    def entries(self) -> list[search.Entry]:
+        """Everything the search can find: each page, and each group and row on it."""
+        out = []
+        for key, dest in self.dest.items():
+            path = self.path(key)
+            parent = dest.parent or ""
+            parent_path = self.path(parent) + [self.dest[parent].title] if parent else []
+            chain = [d.key for d in self.chain(key)]
+            out.append(search.Entry(dest.title, path, key, "page", words=dest.words, subtitle=dest.intro,
+                                    parent_dest=parent, parent_path=parent_path, target=None, chain=chain))
+            here = path + [dest.title]
+            stack = list(children(dest.box))
+            while stack:
+                widget = stack.pop()
+                if not widget.get_visible() or isinstance(widget, Gtk.Popover) or getattr(widget, "search_skip", False):
+                    continue
+                if isinstance(widget, Adw.PreferencesGroup) and widget.get_title():
+                    out.append(search.Entry(widget.get_title(), here, key, "group", target=widget,
+                                            subtitle=widget.get_description() or "",
+                                            parent_dest=parent, parent_path=parent_path, chain=chain))
+                elif isinstance(widget, Adw.PreferencesRow) and widget.get_title():
+                    subtitle = widget.get_subtitle() if hasattr(widget, "get_subtitle") else ""
+                    out.append(search.Entry(widget.get_title(), here, key, "row", subtitle=subtitle or "",
+                                            target=widget, parent_dest=parent, parent_path=parent_path,
+                                            chain=chain))
+                elif isinstance(widget, Gtk.ListBoxRow) and getattr(widget, "search_title", ""):
+                    # Rows of their own make (sound devices, apps) give a title for the search.
+                    out.append(search.Entry(widget.search_title, here, key, "row", target=widget,
+                                            parent_dest=parent, parent_path=parent_path, chain=chain))
+                stack.extend(children(widget))
+        return out
+
+    def on_search(self, entry: Gtk.SearchEntry) -> None:
+        query = entry.get_text()
+        clear(self.results)
+        if not query.strip():
+            self.side_stack.set_visible_child_name("pages")
+            return
+        for result in search.rank(self.entries(), query):
+            self.results.append(self.result_row(result))
+        self.side_stack.set_visible_child_name("results")
+        first = self.results.get_row_at_index(0)
+        if first is not None:
+            self.results.select_row(first)
+
+    def result_row(self, result: search.Result) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.result = result
+        box = Gtk.Box(spacing=12)
+        box.append(Gtk.Image.new_from_icon_name(self.dest[result.dest].icon or "preferences-system-symbolic"))
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        title = Gtk.Label(label=result.title, xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        text.append(title)
+        if result.path:
+            text.append(Gtk.Label(label=" → ".join(result.path), xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                  css_classes=["hint", "result-path"]))
+        box.append(text)
+        row.set_child(box)
+        row.set_tooltip_text(" → ".join([*result.path, result.title]))
+        return row
+
+    def on_search_enter(self, _entry) -> None:
+        row = self.results.get_selected_row() or self.results.get_row_at_index(0)
+        if row is not None:
+            self.open_result(row.result)
+
+    def on_search_key(self, _controller, keyval: int, _keycode: int, _state) -> bool:
+        if keyval in (Gdk.KEY_Down, Gdk.KEY_Up) and self.search.get_text():
+            row = self.results.get_selected_row() or self.results.get_row_at_index(0)
+            if row is None:
+                return True
+            step = 1 if keyval == Gdk.KEY_Down else -1
+            other = self.results.get_row_at_index(row.get_index() + step)
+            self.results.select_row(other or row)
+            return True
+        return False
+
+    def open_result(self, result: search.Result) -> None:
+        self.search.set_text("")
+        self.navigate(result.dest, result.target)
+        page = self.dest[result.dest].page
+        GLib.idle_add(lambda: (page.grab_focus(), False)[1])
 
     # --- data ------------------------------------------------------------------------
 
@@ -169,8 +420,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.build_screens()
         self.build_desktop()
         self.build_keys()
-        self.build_settings()
-        self.build_help()
+        self.build_general()
 
     def poll(self) -> bool:
         if self.get_visible() and self.capture is None:
@@ -276,31 +526,24 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     # --- page: screens -------------------------------------------------------------------
 
-    def header(self, page: Gtk.Box, title: str, hint: str) -> None:
-        page.append(label(title, "page-title"))
-        page.append(label(hint, "hint"))
-
     def build_screens(self) -> None:
         page = self.pages["screens"]
         clear(page)
         self.building = True
         self.settle()
-        self.header(page, t("Screens"),
-                    t("Every screen that was ever connected. Pick one above to set it up. "
-                      "Changes apply at once."))
 
         rows = engine.screen_rows(self.cfg, self.connected)
         ids = [row["id"] for row in rows]
-        names = [
-            f"{'★ ' if row['favorite'] else ''}{row['name']}  ·  "
-            f"{'● ' + t('connected') if row['connected'] else '○ ' + t('not connected')}"
-            for row in rows
-        ]
+        names = [f"{'★ ' if row['favorite'] else ''}{row['name']}" for row in rows]
         picker = Adw.PreferencesGroup()
         combo = combo_row(t("Screen"), names)
         combo.add_prefix(Gtk.Image.new_from_icon_name("video-display-symbolic"))
         if self.selected in ids:
             combo.set_selected(ids.index(self.selected))
+            screen = self.cfg["screens"][self.selected]
+            combo.set_subtitle(t("connected to {connector}", connector=screen.get("connector", "?"))
+                               if self.selected in self.connected
+                               else t("not connected · last seen {when}", when=screen.get("last_seen", "?")))
         combo.connect("notify::selected", self.on_screen_picked, ids)
         picker.add(combo)
         page.append(picker)
@@ -322,17 +565,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         screen = self.cfg["screens"][sid]
         connected = sid in self.connected
 
-        about = Adw.PreferencesGroup(title=screen.get("name", sid),
-                                     description=screen.get("description") or "")
-        status = Adw.ActionRow(title=t("Status"),
-                               subtitle=(t("connected to {connector}", connector=screen.get("connector", "?"))
-                                         if connected else
-                                         t("not connected · last seen {when}", when=screen.get("last_seen", "?"))))
-        about.add(status)
+        picture = Adw.PreferencesGroup(title=t("Picture"))
+        for key in ("rotation", "scale", "mode", "position"):
+            if key == "position" and screen.get("internal"):
+                continue
+            picture.add(self.setting_row(sid, key))
+        page.append(picture)
+        desktop = Adw.PreferencesGroup(title=t("Desktops"))
+        desktop.add(self.setting_row(sid, "one_desktop"))
+        page.append(desktop)
+
+        manage = Adw.PreferencesGroup(title=t("This screen"), description=screen.get("description") or "")
         favorite = Adw.SwitchRow(title=t("Favorite"), subtitle=t("Favorites are higher up in the list."))
         favorite.set_active(bool(screen.get("favorite")))
         favorite.connect("notify::active", self.on_favorite, sid)
-        about.add(favorite)
+        manage.add(favorite)
         if not screen.get("internal"):
             forget = Gtk.Button(label=t("Forget"), css_classes=["destructive-action"], valign=Gtk.Align.CENTER)
             forget.set_sensitive(not connected)
@@ -342,30 +589,29 @@ class SettingsWindow(Adw.ApplicationWindow):
             row = Adw.ActionRow(title=t("Forget screen"),
                                 subtitle=t("Only possible while it is not connected."))
             row.add_suffix(forget)
-            about.add(row)
-        page.append(about)
+            manage.add(row)
+        page.append(manage)
 
-        for key in config.SETTING_KEYS:
-            if key == "position" and screen.get("internal"):
-                continue
-            page.append(self.setting_group(sid, key))
-
-    def setting_group(self, sid: str, key: str) -> Adw.PreferencesGroup:
+    def setting_row(self, sid: str, key: str) -> Adw.ExpanderRow:
+        """One setting as one row: what it is set to (and when) in the subtitle,
+        unfolded the setting itself and when it applies."""
         title, explanation = texts.setting_text(key)
-        group = Adw.PreferencesGroup(title=title, description=explanation)
         setting = config.get_setting(self.cfg, sid, key) or {}
         screen = self.cfg["screens"][sid]
-
         values = texts.choices(key, screen, self.cfg.get("default_fixed", "off"))
         current = setting.get("value")
+        conditions = texts.condition_choices(self.cfg, sid, self.connected, setting.get("when"))
+        summary = values[texts.index_of(values, current)][1]
+        if current is not None and setting.get("when"):
+            summary += " · " + conditions[texts.index_of(conditions, setting.get("when"))][1]
+        row = Adw.ExpanderRow(title=title, subtitle=summary)
+
         value_row = combo_row(t("Setting"), [text for _v, text in values])
-        if current is None and key != "one_desktop":
-            value_row.set_subtitle(t("Default = as in your Hyprland config"))
+        value_row.set_subtitle(explanation)
         value_row.set_selected(texts.index_of(values, current))
         value_row.connect("notify::selected", self.on_value, sid, key, values)
-        group.add(value_row)
+        row.add_row(value_row)
 
-        conditions = texts.condition_choices(self.cfg, sid, self.connected, setting.get("when"))
         when_row = combo_row(t("Applies"), [text for _v, text in conditions])
         when_row.set_selected(texts.index_of(conditions, setting.get("when")))
         when_row.set_sensitive(current is not None)
@@ -379,8 +625,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         else:
             when_row.set_subtitle(t("Always, whatever is connected."))
         when_row.connect("notify::selected", self.on_condition, sid, key, conditions)
-        group.add(when_row)
-        return group
+        row.add_row(when_row)
+        return row
 
     def on_value(self, row: Adw.ComboRow, _param, sid: str, key: str, values) -> None:
         if not self.user_input():
@@ -453,10 +699,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         clear(page)
         self.building = True
         self.settle()
-        self.header(page, t("One desktop"),
-                    t("With an external monitor connected, one of the two screens can always show the same "
-                      "desktop – for chat or music, say. Desktops 1–10 (Super + 1…0) then only switch on the "
-                      "other screen."))
 
         status = desktops.status(self.cfg)
         now = Adw.PreferencesGroup(title=t("Right now"))
@@ -474,7 +716,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         default = Adw.PreferencesGroup(
             title=t("For new monitors"),
             description=t("Which screen is fixed when the monitor itself has nothing set "
-                          "(“Only one desktop on this screen” under Screens)."))
+                          "(Screens → “Only one desktop on this screen”)."))
         choices = texts.default_fixed_choices()
         combo = combo_row(t("Fixed is"), [text for _v, text in choices])
         combo.set_selected(texts.index_of(choices, self.cfg["default_fixed"]))
@@ -521,10 +763,8 @@ class SettingsWindow(Adw.ApplicationWindow):
     def build_keys(self) -> None:
         page = self.pages["keys"]
         clear(page)
-        self.header(page, t("Keys"),
-                    t("Set the keys for the windows here. Each action can have two keys. "
-                      "Click a key, then press the new combination."))
-        group = Adw.PreferencesGroup()
+        group = Adw.PreferencesGroup(title=t("Hide and bring back windows"),
+                                     description=t("While recording, Backspace removes a key and Esc cancels."))
         for action in texts.actions():
             row = Adw.ActionRow(title=texts.action_label(action), subtitle=texts.action_help(action))
             for slot, combo in enumerate(self.cfg["keybinds"][action]):
@@ -534,7 +774,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 row.add_suffix(button)
             group.add(row)
         page.append(group)
-        page.append(label(t("Tip: while recording, Backspace removes a key, Esc cancels."), "hint"))
 
     def on_key_clicked(self, _button, action: str, slot: int) -> None:
         dialog = Adw.Dialog(title=t("New key"), content_width=460)
@@ -627,15 +866,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.run_in_background(lambda: keybinds.go_live(old, cfg),
                                t("Key saved") if combo else t("Key removed"))
 
-    # --- page: settings --------------------------------------------------------------------------
+    # --- page: general -----------------------------------------------------------------------------
 
-    def build_settings(self) -> None:
-        page = self.pages["settings"]
+    def build_general(self) -> None:
+        page = self.pages["general"]
         clear(page)
         self.building = True
         self.settle()
-        self.header(page, t("Settings"), t("Settings of this app."))
-        group = Adw.PreferencesGroup()
+        group = Adw.PreferencesGroup(title=t("Language"))
         codes = list(i18n.LANGUAGES)
         combo = combo_row(t("Language"), [i18n.LANGUAGES[code] for code in codes])
         combo.add_prefix(Gtk.Image.new_from_icon_name("preferences-desktop-locale-symbolic"))
@@ -644,6 +882,26 @@ class SettingsWindow(Adw.ApplicationWindow):
         combo.connect("notify::selected", self.on_language, codes)
         group.add(combo)
         page.append(group)
+
+        help_group = Adw.PreferencesGroup(title=t("Help"))
+        page_titles = {dest.title for dest in self.dest.values()}
+        for title, text in texts.help_items():
+            row = Adw.ExpanderRow(title=title)
+            row.add_row(self.text_row(text))
+            # The page of that name is the better search result.
+            row.search_skip = title in page_titles
+            help_group.add(row)
+        page.append(help_group)
+
+        more = Adw.PreferencesGroup(title=t("More"))
+        for title, subtitle, uri in ((t("Open the full guide"), t("All functions explained, on GitHub."), DOCS_URL),
+                                     (t("Open the settings folder"), str(config.config_file().parent),
+                                      config.config_file().parent.as_uri())):
+            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
+            row.add_suffix(Gtk.Image.new_from_icon_name("adw-external-link-symbolic"))
+            row.connect("activated", lambda _r, link=uri: self.open_uri(link))
+            more.add(row)
+        page.append(more)
         self.building = False
 
     def on_language(self, combo: Adw.ComboRow, _param, codes: list[str]) -> None:
@@ -656,26 +914,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         cfg["language"] = code
         config.save(cfg)
         # Every page, the sidebar and the title are built from texts: build the window anew.
-        GLib.idle_add(lambda: self.get_application().reopen_settings("settings") and False)
-
-    # --- page: help --------------------------------------------------------------------------------
-
-    def build_help(self) -> None:
-        page = self.pages["help"]
-        clear(page)
-        self.header(page, t("Help"), t("What is where – in a few sentences."))
-        for title, text in texts.help_items():
-            group = Adw.PreferencesGroup(title=title)
-            group.add(self.text_row(text))
-            page.append(group)
-        buttons = Gtk.Box(spacing=12)
-        docs = Gtk.Button(label=t("Open the full guide"))
-        docs.connect("clicked", lambda _b: self.open_uri(DOCS_URL))
-        folder = Gtk.Button(label=t("Open the settings folder"))
-        folder.connect("clicked", lambda _b: self.open_uri(config.config_file().parent.as_uri()))
-        buttons.append(docs)
-        buttons.append(folder)
-        page.append(buttons)
+        GLib.idle_add(lambda: self.get_application().reopen_settings("general") and False)
 
     def text_row(self, text: str) -> Gtk.Widget:
         row = Gtk.ListBoxRow(activatable=False)
@@ -692,11 +931,22 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     # --- window ------------------------------------------------------------------------------------
 
-    def on_window_key(self, _controller, keyval: int, _keycode: int, _state) -> bool:
-        if keyval == Gdk.KEY_Escape and self.capture is None:
-            self.close()
+    def on_window_key(self, _controller, keyval: int, _keycode: int, state) -> bool:
+        """Ctrl+F searches; Esc clears the search, then goes back a page, then closes."""
+        if self.capture is not None:
+            return False
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F) and state & Gdk.ModifierType.CONTROL_MASK:
+            self.search.grab_focus()
             return True
-        return False
+        if keyval != Gdk.KEY_Escape or self.get_visible_dialog() is not None:
+            return False
+        if self.search.get_text():
+            self.search.set_text("")
+        elif len(self.stack_pages()) > 1:
+            self.content.pop()
+        else:
+            self.close()
+        return True
 
     def float_centered(self) -> bool:
         """Fallback for a Lua file without the window rule (keybinds.render): float

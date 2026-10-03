@@ -55,7 +55,6 @@ class SoundPage:
         self.icons: dict[str, Gio.Icon | str] = {}
         self.jobs: queue.Queue = queue.Queue()
         threading.Thread(target=self.worker, daemon=True).start()
-        self.page.append(label(t("Sound"), "page-title"))
         self.page.append(label(t("Loading …"), "hint"))
         GLib.timeout_add(POLL_MS, self.tick)
         self.fetch()
@@ -63,7 +62,7 @@ class SoundPage:
     # --- data ----------------------------------------------------------------------------
 
     def shown(self) -> bool:
-        return self.window.get_visible() and self.window.stack.get_visible_child_name() == "sound"
+        return self.window.get_visible() and self.window.current_page() == "sound"
 
     def tick(self) -> bool:
         if self.shown():
@@ -127,11 +126,6 @@ class SoundPage:
         clear(self.page)
         self.controls.clear()
         data = self.data
-        self.page.append(label(t("Sound"), "page-title"))
-        self.page.append(label(t(
-            "Volume for every device and every app. “Force Mute” keeps a device silent for good: "
-            "it is set back to 0 % and muted at once and every second – even when an app "
-            "or a key turns it up."), "hint"))
 
         present = {d["key"] for d in data["outputs"] + data["inputs"]}
         outputs = Adw.PreferencesGroup(title=t("Output"), description=t("Speakers, headphones, screens."))
@@ -216,6 +210,7 @@ class SoundPage:
                                         device["volume"], device["mute"], locked=forced))
         row = Gtk.ListBoxRow(activatable=False, selectable=False)
         row.set_child(box)
+        row.search_title = device["label"]  # found by the window's search
         return row
 
     def app_row(self, app: dict, targets: list[dict]) -> Gtk.Widget:
@@ -244,6 +239,7 @@ class SoundPage:
                                     app["volume"], app["mute"]))
         row = Gtk.ListBoxRow(activatable=False, selectable=False)
         row.set_child(box)
+        row.search_title = app["label"]
         return row
 
     def volume_line(self, cid: str, kind: str, target: str, volume: int, mute: bool,

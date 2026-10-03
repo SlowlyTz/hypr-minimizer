@@ -47,7 +47,7 @@ def test_texts_follow_the_language():
     try:
         assert texts.condition_choices({"screens": {"a": {}, "b": {"name": "HP 32f"}}}, "a", {"b"})[1][1] == \
             "Nur mit „HP 32f“"
-        assert [title for _key, title, _icon in texts.pages()][:3] == ["Bildschirme", "Ein Desktop", "Tasten"]
+        assert [title for _key, title, _icon in texts.pages()][:3] == ["Bildschirme", "Fester Bildschirm", "Tastenkürzel"]
     finally:
         i18n.set_language("en")
 

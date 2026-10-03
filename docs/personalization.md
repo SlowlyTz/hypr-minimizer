@@ -1,8 +1,8 @@
 # Personalization
 
-The **Personalization** page of the settings window (tray icon) starts with two buttons, **Window** and **Widgets**; each opens its page, and the arrow at the top left goes back.
+The **Appearance** section of the settings window (tray icon) has two pages, **Windows** and **Widgets**. A widget opens its own page and its colors a page under that one; the arrow in the title bar goes back.
 
-## Window
+## Windows
 
 Gaps between windows and at the screen edge, corner rounding, border width, blur (on/off, strength, quality) and the transparency of the active and the other windows.
 

@@ -1,10 +1,10 @@
 """Personalization → Widgets: switch the desktop widgets on, set them up and
 arrange them (move, resize and turn them on the desktop, then save).
 
-The tab is an overview: arranging, then one row per widget with its switch
-and a short summary. A row opens the widget's own page (a page of the
-Personalization stack) with its settings in three parts: Placement, Content
-and Look.
+The Widgets page is an overview: arranging, one row per widget with its
+switch and a short summary, and the layouts. A row opens the widget's own
+page (under Widgets, with a back button) with its settings in parts:
+Placement, Visibility, Content and Look; its colors have a page under it.
 
 Every change goes live at once (widgets.apply writes what the shell plugin
 reads). A widget switched on for the first time appears in the middle of the
@@ -118,6 +118,8 @@ HINTS = {
     "same_place": "Off: arrange it on each screen on its own.",
     "player": "With an app picked, only its music counts – the visualizer then hears only that app.",
 }
+# Hints shown under their own row instead of over the section.
+ROW_HINTS = {"same_place"}
 DESCRIPTIONS = {
     "visualizer": "Bars that move with the sound playing right now.",
     "lyrics": "The words of the song playing, in time with the music (from lrclib.net).",
@@ -145,16 +147,20 @@ def combo(title: str, labels: list[str], selected: int) -> Adw.ComboRow:
 
 
 class WidgetsTab:
-    def __init__(self, window, tab: Gtk.Box, pages: dict[str, Gtk.Box], color_pages: dict[str, Gtk.Box], open_page):
-        """tab: the overview; pages: each widget's page, color_pages its colors;
-        open_page(name) shows "widget-<kind>", "widget-<kind>-colors" (or
-        "widgets") in the Personalization stack."""
+    def __init__(self, window, tab: Gtk.Box):
+        """tab: the Widgets page. Each widget gets a page under it,
+        "widget-<kind>", and that one a page for its colors,
+        "widget-<kind>-colors" (window.add_destination)."""
         self.window = window
         self.tab = tab
-        self.pages = pages
-        self.color_pages = color_pages
+        self.pages, self.color_pages = {}, {}
+        for kind in widgets.KINDS:
+            self.pages[kind] = window.add_destination(f"widget-{kind}", t(widgets.TITLES[kind]), parent="widgets",
+                                                      icon=ICONS[kind], intro=t(DESCRIPTIONS[kind]))
+            self.color_pages[kind] = window.add_destination(f"widget-{kind}-colors", t("Colors"),
+                                                            parent=f"widget-{kind}")
         self.colors = widget_colors.ColorsPage(window, self.change)
-        self.open_page = open_page
+        self.open_page = window.navigate
         self.editing = False
         self.updating = False
         self.pending: dict[str, int] = {}
@@ -209,7 +215,6 @@ class WidgetsTab:
     def build_overview(self) -> None:
         self.clear(self.tab)
         state = self.current()
-        self.tab.append(label(t("Widgets sit on the desktop behind the windows. Open one to set it up."), "hint"))
         self.tab.append(self.arrange_group(state))
         group = Adw.PreferencesGroup()
         for kind in widgets.KINDS:
@@ -301,7 +306,6 @@ class WidgetsTab:
     def build_page(self, kind: str, widget: dict) -> None:
         page = self.pages[kind]
         self.clear(page)
-        page.append(label(t(DESCRIPTIONS[kind]), "hint"))
         group = Adw.PreferencesGroup()
         shown = Adw.SwitchRow(title=t("Show this widget"))
         shown.add_prefix(Gtk.Image.new_from_icon_name(ICONS[kind]))
@@ -320,7 +324,7 @@ class WidgetsTab:
             return
         for title, keys in SECTIONS[kind]:
             section = Adw.PreferencesGroup(title=t(title))
-            hints = [t(HINTS[key]) for key in keys if key in HINTS]
+            hints = [t(HINTS[key]) for key in keys if key in HINTS and key not in ROW_HINTS]
             if hints:
                 section.set_description(" ".join(hints))
             for key in keys:
@@ -446,7 +450,7 @@ class WidgetsTab:
             title, step, unit = SLIDER_ROWS[key]
             low, high = widgets.RANGES[key]
             return self.slider(kind, key, t(title), low, high, step, widget[key], unit)
-        row = Adw.SwitchRow(title=t(SWITCH_TITLES[key]))
+        row = Adw.SwitchRow(title=t(SWITCH_TITLES[key]), subtitle=t(HINTS[key]) if key in ROW_HINTS else "")
         row.set_active(bool(widget[key]))
         row.connect("notify::active", self.on_switch, kind, key)
         return row
