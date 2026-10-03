@@ -10,7 +10,8 @@ Item {
   property var service: null
   property bool editing: false
 
-  readonly property var spot: service ? service.placement("system") : null
+  // Its place and size on this screen (set by Placed).
+  property var spot: null
   readonly property real scale: spot ? spot.size / 100 : 1
   readonly property var settings: service ? service.widget("system") : null
   readonly property var texts: service && service.texts ? service.texts : ({})

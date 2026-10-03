@@ -13,7 +13,8 @@ Item {
   property bool editing: false
 
   readonly property var settings: service ? service.widget("visualizer") : null
-  readonly property var spot: service ? service.placement("visualizer") : null
+  // Its place and size on this screen (set by Placed).
+  property var spot: null
   readonly property int count: settings ? settings.bars : 32
   readonly property real length: spot ? spot.size : 160
   readonly property real wide: spot ? spot.width : 0

@@ -11,7 +11,8 @@ Item {
   property bool editing: false
 
   readonly property var settings: service ? service.widget("clock") : null
-  readonly property var spot: service ? service.placement("clock") : null
+  // Its place and size on this screen (set by Placed).
+  property var spot: null
   readonly property real scale: spot ? spot.size / 100 : 1
   readonly property bool seconds: !!(settings && settings.seconds)
   readonly property bool date: !(settings && settings.date === false)

@@ -43,6 +43,9 @@ STYLE = {"font_family": "", "font_weight": "bold", "letter_spacing": 0, "effect"
 # above the windows instead of behind them.
 FIXED_DESKTOP = 99
 VISIBILITY = {"desktops": [], "only_empty": False, "hide_on_battery": False, "above": False}
+# One place on every screen, or (same_place off) a place per screen id in
+# "spots"; a screen without one uses the widget's own place.
+PLACES = {"same_place": True, "spots": {}}
 FONT_WEIGHTS = ["light", "regular", "medium", "bold", "black"]
 EFFECTS = ["outline", "shadow", "glow", "none"]
 # Each widget's parts that have a color, in groups: (group title, [(part,
@@ -77,7 +80,7 @@ BASE = {
                "curves": True, "color": "accent", "opacity": 100, "size": 100, "width": 0,
                "placed": False, **CENTER},
 }
-DEFAULTS = {kind: {**base, **STYLE, **VISIBILITY} for kind, base in BASE.items()}
+DEFAULTS = {kind: {**base, **STYLE, **VISIBILITY, **PLACES} for kind, base in BASE.items()}
 # The values a setting can take; the first-listed default is in DEFAULTS.
 STYLE_CHOICES = {"font_weight": FONT_WEIGHTS, "effect": EFFECTS}
 CHOICES = {
@@ -101,7 +104,10 @@ SIZE_RANGES = {"visualizer": (30, 600), "lyrics": (40, 1200), "clock": (30, 400)
 # Width in pixels for the widgets that can be made wider on their own.
 WIDTH_RANGES = {"visualizer": (60, 2000), "lyrics": (200, 2400), "system": (150, 1200)}
 # What arranging may change.
-PLACEMENT_KEYS = ("x", "y", "rotation", "size", "width")
+PLACEMENT_KEYS = ("x", "y", "rotation", "size", "width", "colors", "spots")
+SPOT_KEYS = ("x", "y", "rotation", "size", "width")
+MAX_SPOTS = 20
+MAX_LAYOUTS = 30
 
 
 def settings_file() -> Path:
@@ -134,6 +140,19 @@ def clean_colors(kind: str, raw: object) -> dict[str, str]:
     return colors
 
 
+def clean_spot(kind: str, raw: dict, base: dict) -> dict:
+    """A place on one screen; what it lacks comes from the widget's own place."""
+    spot = {"x": number(raw.get("x"), 0.0, 1.0, base["x"], whole=False),
+            "y": number(raw.get("y"), 0.0, 1.0, base["y"], whole=False),
+            "rotation": number(raw.get("rotation"), *RANGES["rotation"], base["rotation"]),
+            "size": number(raw.get("size"), *SIZE_RANGES[kind], base["size"])}
+    if kind in WIDTH_RANGES:
+        width = raw.get("width", base.get("width", 0))
+        spot["width"] = (number(width, *WIDTH_RANGES[kind], 0)
+                         if isinstance(width, (int, float)) and not isinstance(width, bool) and width > 0 else 0)
+    return spot
+
+
 def normalize(raw: object) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     widgets = {}
@@ -163,6 +182,9 @@ def normalize(raw: object) -> dict:
                                else 0)
         widget["x"] = number(given.get("x"), 0.0, 1.0, defaults["x"], whole=False)
         widget["y"] = number(given.get("y"), 0.0, 1.0, defaults["y"], whole=False)
+        spots = given.get("spots") if isinstance(given.get("spots"), dict) else {}
+        widget["spots"] = {str(sid)[:200]: clean_spot(kind, spot, widget) for sid, spot in list(spots.items())[:MAX_SPOTS]
+                           if isinstance(spot, dict)}
         widgets[kind] = widget
     return widgets
 
@@ -352,6 +374,93 @@ def stop_editing() -> None:
 
 def editing() -> bool:
     return shell_ipc("editing").strip() == "yes"
+
+
+# --- layouts ---------------------------------------------------------------------------------
+# cfg["widget_layouts"]: [{"name", "widgets", "screens"}]: every widget as it
+# was saved; with "screens" (screen ids) it loads by itself whenever exactly
+# those screens are connected.
+
+
+def normalize_layouts(raw: object) -> list[dict]:
+    layouts = []
+    for layout in raw if isinstance(raw, list) else []:
+        if not isinstance(layout, dict):
+            continue
+        name = str(layout.get("name") or "").strip()[:60]
+        if not name or any(other["name"] == name for other in layouts):
+            continue
+        screens = layout.get("screens") if isinstance(layout.get("screens"), list) else []
+        layouts.append({"name": name, "widgets": normalize(layout.get("widgets")),
+                        "screens": sorted({str(sid) for sid in screens if str(sid)})})
+    return layouts[:MAX_LAYOUTS]
+
+
+def save_layout(cfg: dict, name: str) -> dict:
+    """Keep the widgets as they are now under this name (replacing one of that name)."""
+    name = name.strip()[:60]
+    layouts = [layout for layout in cfg["widget_layouts"] if layout["name"] != name]
+    old = next((layout for layout in cfg["widget_layouts"] if layout["name"] == name), None)
+    layouts.append({"name": name, "widgets": normalize(cfg["widgets"]), "screens": old["screens"] if old else []})
+    cfg["widget_layouts"] = normalize_layouts(layouts)
+    return cfg
+
+
+def load_layout(cfg: dict, name: str) -> dict:
+    layout = next((layout for layout in cfg["widget_layouts"] if layout["name"] == name), None)
+    if layout is not None:
+        cfg["widgets"] = normalize(layout["widgets"])
+    return cfg
+
+
+def rename_layout(cfg: dict, name: str, new_name: str) -> dict:
+    new_name = new_name.strip()[:60]
+    if new_name and not any(layout["name"] == new_name for layout in cfg["widget_layouts"]):
+        for layout in cfg["widget_layouts"]:
+            if layout["name"] == name:
+                layout["name"] = new_name
+    return cfg
+
+
+def delete_layout(cfg: dict, name: str) -> dict:
+    cfg["widget_layouts"] = [layout for layout in cfg["widget_layouts"] if layout["name"] != name]
+    return cfg
+
+
+def set_layout_screens(cfg: dict, name: str, screens: list[str]) -> dict:
+    """Load this layout by itself with exactly these screens ([]: only by hand).
+    Another layout with the same screens gives them up."""
+    screens = sorted(set(screens))
+    for layout in cfg["widget_layouts"]:
+        if layout["name"] == name:
+            layout["screens"] = screens
+        elif screens and layout["screens"] == screens:
+            layout["screens"] = []
+    return cfg
+
+
+def matching_layout(cfg: dict, connected: list[str]) -> dict | None:
+    connected = sorted(set(connected))
+    return next((layout for layout in cfg["widget_layouts"] if layout["screens"] == connected), None)
+
+
+def connected_screens() -> list[str]:
+    from hypr_screens import hypr
+
+    return sorted(config.connected(hypr.monitors()))
+
+
+def auto_layout() -> str:
+    """Load the layout made for the screens connected now (the watcher calls
+    this after a monitor change)."""
+    cfg = config.load()
+    layout = matching_layout(cfg, connected_screens())
+    if layout is None or normalize(layout["widgets"]) == cfg["widgets"]:
+        return ""
+    cfg = load_layout(cfg, layout["name"])
+    config.save(cfg)
+    apply(cfg)
+    return f"widget layout {layout['name']}"
 
 
 def save_placements(cfg: dict, placements: dict) -> dict:

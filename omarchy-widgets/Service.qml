@@ -178,27 +178,42 @@ Item {
     for (var kind in root.widgets) {
       var w = root.widgets[kind]
       out[kind] = { x: Number(w.x), y: Number(w.y), rotation: Number(w.rotation),
-                    size: Number(w.size), width: Number(w.width || 0), colors: Object.assign({}, w.colors || {}) }
+                    size: Number(w.size), width: Number(w.width || 0), colors: Object.assign({}, w.colors || {}),
+                    same_place: w.same_place !== false, spots: JSON.parse(JSON.stringify(w.spots || {})) }
     }
     return out
   }
-  function placement(kind) {
-    return root.draft[kind] || { x: 0.5, y: 0.5, rotation: 0, size: { visualizer: 160, lyrics: 200 }[kind] || 100, width: 0, colors: {} }
+  // The place on a screen (sid: its id): the widget's own, or with
+  // same_place off the screen's own spot once it has one.
+  function placement(kind, sid) {
+    var base = root.draft[kind] || { x: 0.5, y: 0.5, rotation: 0, size: { visualizer: 160, lyrics: 200 }[kind] || 100,
+                                     width: 0, colors: {}, same_place: true, spots: {} }
+    if (sid && base.same_place === false && base.spots && base.spots[sid]) return Object.assign({}, base, base.spots[sid])
+    return base
   }
-  function changePlacement(kind, changes) {
+  function changePlacement(kind, changes, sid) {
     var next = Object.assign({}, root.draft)
-    next[kind] = Object.assign({}, root.placement(kind), changes)
+    var base = Object.assign({}, root.placement(kind))
+    if (sid && base.same_place === false) {
+      var here = root.placement(kind, sid)
+      var spots = Object.assign({}, base.spots || {})
+      spots[sid] = Object.assign({ x: here.x, y: here.y, rotation: here.rotation, size: here.size, width: here.width }, changes)
+      base.spots = spots
+    } else {
+      Object.assign(base, changes)
+    }
+    next[kind] = base
     root.draft = next
   }
-  function setPlacement(kind, x, y, rotation) {
-    root.changePlacement(kind, { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)), rotation: rotation })
+  function setPlacement(kind, x, y, rotation, sid) {
+    root.changePlacement(kind, { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)), rotation: rotation }, sid)
   }
   function hasWidth(kind) { return !!(root.ranges[kind] && root.ranges[kind].width) }
   function clamp(value, range) { return range ? Math.max(range[0], Math.min(range[1], value)) : value }
-  function setSize(kind, size, width) {
+  function setSize(kind, size, width, sid) {
     var range = root.ranges[kind] || {}
     root.changePlacement(kind, { size: Math.round(root.clamp(size, range.size)),
-                                 width: width > 0 ? Math.round(root.clamp(width, range.width)) : 0 })
+                                 width: width > 0 ? Math.round(root.clamp(width, range.width)) : 0 }, sid)
   }
 
   // hypr-screens' screen id: "make|model|serial", like config.screen_id().
@@ -687,6 +702,7 @@ Item {
           required property string modelData
           service: root
           kind: modelData
+          screenKey: root.screenId(panel.modelData)
           editable: panel.editLayer
           visible: root.shows(kind, panel.modelData, panel.editLayer ? "" : panel.group)
           Loader {
@@ -695,6 +711,7 @@ Item {
             sourceComponent: root.views[placed.kind] || null
           }
           Binding { target: view.item; property: "editing"; value: panel.editLayer; when: view.item !== null }
+          Binding { target: view.item; property: "spot"; value: placed.spot; when: view.item !== null }
         }
       }
     }

@@ -21,7 +21,8 @@ Item {
   property bool editing: false
 
   readonly property var settings: service ? service.widget("lyrics") : null
-  readonly property var spot: service ? service.placement("lyrics") : null
+  // Its place and size on this screen (set by Placed).
+  property var spot: null
   readonly property int shownLines: settings ? settings.lines : 3
   readonly property string highlight: settings ? settings.highlight : "line"
   readonly property string align: settings ? settings.align : "center"

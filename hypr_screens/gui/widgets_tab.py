@@ -29,13 +29,13 @@ DEBOUNCE_MS = 300
 LOOK = ["color", "colors", "font", "effect", "card", "opacity"]
 VISIBILITY = ("Visibility", ["desktops", "only_empty", "hide_on_battery", "above"])
 SECTIONS = {
-    "visualizer": [("Placement", ["where", "screens", "arrange"]), VISIBILITY, ("Content", ["bars", "style"]),
+    "visualizer": [("Placement", ["where", "screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["bars", "style"]),
                    ("Look", LOOK)],
-    "lyrics": [("Placement", ["screens", "arrange"]), VISIBILITY, ("Content", ["highlight", "lines", "hide_paused"]),
+    "lyrics": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["highlight", "lines", "hide_paused"]),
                ("Look", ["align", *LOOK])],
-    "clock": [("Placement", ["screens", "arrange"]), VISIBILITY, ("Content", ["hours", "date", "seconds"]),
+    "clock": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["hours", "date", "seconds"]),
               ("Look", LOOK)],
-    "system": [("Placement", ["screens", "arrange"]), VISIBILITY,
+    "system": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
                ("Content", ["cpu", "memory", "temperature", "curves"]), ("Look", LOOK)],
 }
 # Rows that fold out: key: (title, the settings inside). "card" has its own switch.
@@ -62,7 +62,8 @@ CHOICE_LABELS = {
 SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "seconds": "Show seconds",
                  "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves",
                  "card_blur": "Blur behind the card", "only_empty": "Only on an empty desktop",
-                 "hide_on_battery": "Hide on battery", "above": "Above the windows"}
+                 "hide_on_battery": "Hide on battery", "above": "Above the windows",
+                 "same_place": "Same place on every screen"}
 # key: (title, step, unit); the range is widgets.RANGES.
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
@@ -73,6 +74,7 @@ NUMBER_ROWS = {"lines": "Lines"}
 HINTS = {
     "highlight": "Word by word follows the singing; most songs only have times per line, "
                  "then the words are spread over the line.",
+    "same_place": "Off: arrange it on each screen on its own.",
 }
 DESCRIPTIONS = {
     "visualizer": "Bars that move with the sound playing right now.",
@@ -165,6 +167,67 @@ class WidgetsTab:
         for kind in widgets.KINDS:
             group.add(self.overview_row(kind, state[kind]))
         self.tab.append(group)
+        self.tab.append(self.layouts_group())
+
+    # --- layouts ---------------------------------------------------------------------------
+
+    def screen_names(self, sids: list[str]) -> str:
+        screens = config.load()["screens"]
+        return " + ".join(screens.get(sid, {}).get("name", sid) for sid in sids)
+
+    def layouts_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title=t("Layouts"),
+                                     description=t("Keep all widgets as they are now and bring them back later – by "
+                                                   "hand, or by themselves when certain screens are connected."))
+        cfg = config.load()
+        connected = widgets.connected_screens()
+        for layout in cfg["widget_layouts"]:
+            name = layout["name"]
+            subtitle = (t("Loads by itself with: {screens}", screens=self.screen_names(layout["screens"]))
+                        if layout["screens"] else t("Loaded by hand"))
+            row = Adw.ExpanderRow(title=name, subtitle=subtitle)
+            load = Gtk.Button(label=t("Load"), valign=Gtk.Align.CENTER, css_classes=["flat"])
+            load.connect("clicked", lambda _b, n=name: self.on_layout(widgets.load_layout, n, loads=True,
+                                                                     toast=t("Layout “{name}” loaded", name=n)))
+            row.add_suffix(load)
+            auto = Adw.SwitchRow(title=t("Load with the screens connected now"), subtitle=self.screen_names(connected))
+            auto.set_active(bool(layout["screens"]) and layout["screens"] == connected)
+            auto.connect("notify::active", lambda r, _p, n=name: self.on_layout(
+                widgets.set_layout_screens, n, connected if r.get_active() else []))
+            row.add_row(auto)
+            keep = Adw.ActionRow(title=t("Keep the widgets as they are now in it"))
+            button = Gtk.Button(label=t("Save"), valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda _b, n=name: self.on_layout(widgets.save_layout, n,
+                                                                       toast=t("Layout “{name}” saved", name=n)))
+            keep.add_suffix(button)
+            row.add_row(keep)
+            rename = Adw.EntryRow(title=t("Name"), text=name, show_apply_button=True)
+            rename.connect("apply", lambda e, n=name: self.on_layout(widgets.rename_layout, n, e.get_text()))
+            row.add_row(rename)
+            delete = Adw.ActionRow(title=t("Delete this layout"))
+            button = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                css_classes=["flat", "destructive-action"])
+            button.connect("clicked", lambda _b, n=name: self.on_layout(widgets.delete_layout, n))
+            delete.add_suffix(button)
+            row.add_row(delete)
+            group.add(row)
+        new = Adw.EntryRow(title=t("Save as a new layout – type a name"), show_apply_button=True)
+        new.connect("apply", lambda e: e.get_text().strip() and self.on_layout(
+            widgets.save_layout, e.get_text(), toast=t("Layout “{name}” saved", name=e.get_text().strip())))
+        group.add(new)
+        return group
+
+    def on_layout(self, action, *args, loads: bool = False, toast: str = "") -> None:
+        if self.updating:
+            return
+        cfg = action(config.load(), *args)
+        config.save(cfg)
+        self.window.cfg = cfg
+        if loads:
+            widgets.apply(cfg)
+        if toast:
+            self.window.toast(toast)
+        GLib.idle_add(lambda: self.build() and False)
 
     def overview_row(self, kind: str, widget: dict) -> Adw.ActionRow:
         row = Adw.ActionRow(title=t(widgets.TITLES[kind]), subtitle=self.summary(kind, widget), activatable=True)

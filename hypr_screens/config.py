@@ -69,6 +69,7 @@ def default_config() -> dict:
         "look": {},
         "camera": {"rotation": 0, "enabled": True},
         "widgets": {},
+        "widget_layouts": [],
     }
 
 
@@ -133,6 +134,7 @@ def normalize(raw: object) -> dict:
     from hypr_screens import widgets  # local: widgets imports config
 
     cfg["widgets"] = widgets.normalize(raw.get("widgets"))
+    cfg["widget_layouts"] = widgets.normalize_layouts(raw.get("widget_layouts"))
     return cfg
 
 

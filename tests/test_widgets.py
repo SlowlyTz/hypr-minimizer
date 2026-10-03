@@ -128,3 +128,34 @@ def test_visibility_rules_are_kept_clean():
                                          "above": True}})["clock"]
     assert clock["desktops"] == [1, 3, 99] and clock["only_empty"] and clock["above"]
     assert not clock["hide_on_battery"] and widgets.normalize({})["clock"]["desktops"] == []
+
+
+def test_places_per_screen():
+    clock = widgets.normalize({"clock": {"same_place": False, "x": 0.2, "spots": {
+        "HP|32f|1": {"x": 0.9, "size": 9999}, "bad": "x"}}})["clock"]
+    assert clock["same_place"] is False
+    assert clock["spots"] == {"HP|32f|1": {"x": 0.9, "y": 0.5, "rotation": 0, "size": 400}}
+    cfg = config.default_config()
+    cfg["widgets"] = widgets.normalize({})
+    cfg = widgets.save_placements(cfg, {"lyrics": {"spots": {"A|B|C": {"x": 0.1, "width": 50}},
+                                                   "colors": {"current": "#FF0000", "nope": "#000000"}}})
+    assert cfg["widgets"]["lyrics"]["spots"]["A|B|C"]["width"] == 200
+    assert cfg["widgets"]["lyrics"]["colors"] == {"current": "#ff0000"}
+
+
+def test_layouts_save_load_and_follow_the_screens():
+    cfg = config.default_config()
+    cfg["widgets"] = widgets.normalize({"clock": {"enabled": True}})
+    cfg = widgets.save_layout(cfg, " Work ")
+    cfg["widgets"] = widgets.normalize({"lyrics": {"enabled": True}})
+    cfg = widgets.save_layout(cfg, "Music")
+    assert [layout["name"] for layout in cfg["widget_layouts"]] == ["Work", "Music"]
+    cfg = widgets.load_layout(cfg, "Work")
+    assert cfg["widgets"]["clock"]["enabled"] and not cfg["widgets"]["lyrics"]["enabled"]
+    cfg = widgets.set_layout_screens(cfg, "Work", ["B", "A"])
+    cfg = widgets.set_layout_screens(cfg, "Music", ["A", "B"])
+    assert cfg["widget_layouts"][0]["screens"] == [] and widgets.matching_layout(cfg, ["B", "A"])["name"] == "Music"
+    cfg = widgets.rename_layout(cfg, "Music", "Work")  # taken: stays
+    cfg = widgets.rename_layout(cfg, "Music", "Party")
+    cfg = widgets.delete_layout(cfg, "Work")
+    assert [layout["name"] for layout in config.normalize(cfg)["widget_layouts"]] == ["Party"]

@@ -13,7 +13,7 @@ import sys
 import threading
 from pathlib import Path
 
-from hypr_screens import camera, config, engine, install, samsung, sound
+from hypr_screens import camera, config, engine, install, samsung, sound, widgets
 
 SETTLE_SECONDS = 1.0
 EVENTS = {
@@ -87,6 +87,12 @@ def watch() -> int:
                 kind = strongest(pending)
                 pending.clear()
                 log(f"{kind}: {engine.sync(kind) or 'nothing to change'}")
+                if kind in ("added", "removed"):
+                    try:
+                        if message := widgets.auto_layout():
+                            log(message)
+                    except Exception as error:  # widgets are a nicety; the watcher must run
+                        log(f"widget layout: {error}")
                 continue
             if not chunk:
                 return 0

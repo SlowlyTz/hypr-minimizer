@@ -17,9 +17,11 @@ Item {
   property var service: null
   property string kind: ""
   property bool editable: false
+  // This screen's id: with same_place off the widget has a place per screen.
+  property string screenKey: ""
   default property alias content: holder.data
 
-  readonly property var spot: service ? service.placement(kind) : { x: 0.5, y: 0.5, rotation: 0, size: 100, width: 0 }
+  readonly property var spot: service ? service.placement(kind, screenKey) : { x: 0.5, y: 0.5, rotation: 0, size: 100, width: 0 }
   readonly property var settings: service ? service.widget(kind) : null
   readonly property string title: service && service.texts && service.texts[kind] ? service.texts[kind] : kind
   readonly property real frameMargin: Style.space(10)
@@ -43,7 +45,7 @@ Item {
   function commit() {
     var w = parent ? parent.width : 1
     var h = parent ? parent.height : 1
-    service.setPlacement(kind, (x + width / 2) / w, (y + height / 2) / h, spot.rotation)
+    service.setPlacement(kind, (x + width / 2) / w, (y + height / 2) / h, spot.rotation, screenKey)
     // Dragging set x and y directly; follow the spot again.
     x = Qt.binding(function() { return spot.x * (parent ? parent.width : 0) - width / 2 })
     y = Qt.binding(function() { return spot.y * (parent ? parent.height : 0) - height / 2 })
@@ -53,7 +55,7 @@ Item {
     var next = Math.round(spot.rotation + degrees)
     while (next > 180) next -= 360
     while (next <= -180) next += 360
-    service.setPlacement(kind, spot.x, spot.y, next)
+    service.setPlacement(kind, spot.x, spot.y, next, screenKey)
   }
 
   // --- resizing ----------------------------------------------------------------------
@@ -99,7 +101,7 @@ Item {
     } else {
       size = resize.size * taller
     }
-    service.setSize(kind, size, scalesOnly ? 0 : wide)
+    service.setSize(kind, size, scalesOnly ? 0 : wide, screenKey)
     keepAnchor()
   }
 
@@ -112,7 +114,7 @@ Item {
     if (!resize || !parent || parent.width <= 0 || parent.height <= 0) return
     var offset = toScreen(-resize.sx * width / 2, -resize.sy * height / 2)
     service.setPlacement(kind, (resize.anchor.x - offset.x) / parent.width,
-                         (resize.anchor.y - offset.y) / parent.height, spot.rotation)
+                         (resize.anchor.y - offset.y) / parent.height, spot.rotation, screenKey)
   }
 
   // The resize arrow that points the way this handle pulls on the turned widget.
