@@ -204,6 +204,9 @@ def build_parser() -> argparse.ArgumentParser:
     cam = sub.add_parser("camera", help="the turned virtual camera: status | setup | teardown | rotate 0|90|180|270")
     cam.add_argument("action", choices=["status", "setup", "teardown", "rotate"])
     cam.add_argument("degrees", nargs="?", type=int)
+    wid = sub.add_parser("widgets", help="desktop widgets: save PLACEMENTS_JSON (used by the arranging overlay)")
+    wid.add_argument("action", choices=["save"])
+    wid.add_argument("placements")
     power = sub.add_parser("power", help="performance mode, used by the battery panel: list | set MODE")
     power.add_argument("action", choices=["list", "set"])
     power.add_argument("mode", nargs="?")
@@ -269,6 +272,18 @@ def run(args: argparse.Namespace) -> int:
         return 0
     if command == "camera":
         return camera_command(args)
+    if command == "widgets":
+        from hypr_screens import widgets
+
+        try:
+            placements = json.loads(args.placements)
+        except json.JSONDecodeError:
+            print("hypr-screens: placements must be JSON", file=sys.stderr)
+            return 1
+        cfg = widgets.save_placements(config.load(), placements if isinstance(placements, dict) else {})
+        config.save(cfg)
+        widgets.export(cfg)
+        return 0
     if command == "power":
         return power(args)
     if command == "samsung":

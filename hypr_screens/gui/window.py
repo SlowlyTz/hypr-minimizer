@@ -101,6 +101,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         body.append(self.stack)
 
         self.pages = {}
+        # A bar under each page that does not scroll away (hidden unless a page fills it).
+        self.footers = {}
+        self.scrollers = {}
         for key, title, icon in texts.pages():
             if key == "samsung" and not samsung.present():
                 continue
@@ -113,10 +116,17 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.sidebar.append(row)
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
                               margin_top=24, margin_bottom=24, margin_start=28, margin_end=28)
-            scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+            scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
             scroller.set_child(Adw.Clamp(maximum_size=780, child=content))
-            self.stack.add_named(scroller, key)
+            footer = Gtk.Box(spacing=12, visible=False, css_classes=["page-footer"],
+                             margin_top=10, margin_bottom=10, margin_start=28, margin_end=28)
+            column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            column.append(scroller)
+            column.append(footer)
+            self.stack.add_named(column, key)
             self.pages[key] = content
+            self.footers[key] = footer
+            self.scrollers[key] = scroller
         self.sidebar.connect("row-selected", lambda _box, row: row and self.stack.set_visible_child_name(row.page))
         start = next((row for row in self.sidebar_rows() if row.page == page), None)
         self.sidebar.select_row(start or self.sidebar.get_row_at_index(0))

@@ -107,6 +107,9 @@ list.boxed-list {{ border: 1px solid alpha({fg}, 0.15); }}
 .navigation-sidebar row:selected {{ background: alpha({fg}, 0.08); color: {accent}; }}
 .page-title {{ font-size: 1.4em; font-weight: bold; }}
 .hint {{ color: {muted}; }}
+.page-footer {{ border-top: 1px solid alpha({fg}, 0.12); padding-top: 10px; }}
+.nav-card {{ padding: 6px; }}
+.nav-card-title {{ font-size: 1.2em; font-weight: bold; }}
 .status-on {{ color: {colors["green"]}; }}
 .status-off {{ color: {muted}; }}
 .keycap {{ padding: 4px 10px; min-width: 150px; }}

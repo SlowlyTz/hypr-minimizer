@@ -68,6 +68,7 @@ def default_config() -> dict:
         "language": "en",
         "look": {},
         "camera": {"rotation": 0, "enabled": True},
+        "widgets": {},
     }
 
 
@@ -121,7 +122,7 @@ def normalize(raw: object) -> dict:
     cfg["samsung"]["full_once"] = bool(samsung.get("full_once"))
     if raw.get("language") in LANGUAGE_CODES:
         cfg["language"] = raw["language"]
-    from hypr_screens import look  # look imports hypr only; kept local to stay light
+    from hypr_screens import look  # local: look imports hypr, which needs nothing here
 
     cfg["look"] = look.normalize(raw.get("look"))
     camera = raw.get("camera") if isinstance(raw.get("camera"), dict) else {}
@@ -129,6 +130,9 @@ def normalize(raw: object) -> dict:
         cfg["camera"]["rotation"] = camera["rotation"]
     if isinstance(camera.get("enabled"), bool):
         cfg["camera"]["enabled"] = camera["enabled"]
+    from hypr_screens import widgets  # local: widgets imports config
+
+    cfg["widgets"] = widgets.normalize(raw.get("widgets"))
     return cfg
 
 

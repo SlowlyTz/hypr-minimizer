@@ -42,6 +42,7 @@ Everything else: **[docs/](docs/README.md)** — [daily cheat sheet](docs/daily.
 | `omarchy-plugin/` | window menu (Omarchy shell plugin) |
 | `omarchy-workspaces/` | bar widget that knows the fixed screen |
 | `omarchy-power/` | battery panel with Samsung's four performance modes |
+| `omarchy-widgets/` | desktop widgets and the bar visualizer |
 | `install.sh` | installer + setup wizard |
 | `docs/` | documentation |
 | `tests/` | tests |

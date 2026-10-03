@@ -12,6 +12,7 @@ PLUGINS = {
     "hypr-minimizer.picker": REPO / "omarchy-plugin",
     "hypr-screens.workspaces": REPO / "omarchy-workspaces",
     "hypr-screens.power": REPO / "omarchy-power",
+    "hypr-screens.widgets": REPO / "omarchy-widgets",
 }
 # Replaced by the settings window; removed on setup.
 RETIRED_PLUGINS = ["hypr-screens.menu"]

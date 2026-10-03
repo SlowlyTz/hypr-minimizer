@@ -31,7 +31,7 @@ def table_keys() -> set[str]:
     keys |= set(sound.PORT_LABELS.values())
     keys |= {label for _mode, label, _cpu in samsung.MODES} | set(samsung.ATTRIBUTES.values())
     keys |= set(texts.MODE_HINTS.values()) | set(texts.BATTERY_ROWS.values())
-    keys |= personalization_keys()
+    keys |= personalization_keys() | widgets_keys()
     return keys
 
 
@@ -43,6 +43,8 @@ def personalization_keys() -> set[str]:
     tree = ast.parse(source)
     keys = set(look.PRESETS)
     for node in tree.body:
+        if isinstance(node, ast.Assign) and node.targets[0].id == "CARDS":
+            keys |= {text for _page, title, caption, _icon in ast.literal_eval(node.value) for text in (title, caption)}
         if isinstance(node, ast.Assign) and node.targets[0].id in ("SLIDERS", "GROUPS"):
             value = ast.literal_eval(node.value)
             if isinstance(value, dict):
@@ -50,6 +52,28 @@ def personalization_keys() -> set[str]:
                     keys |= {text for text in (title, subtitle) if text}
             else:
                 keys |= {title for title, _keys in value}
+    return keys
+
+
+def widgets_keys() -> set[str]:
+    from hypr_screens import widgets
+
+    source = (ROOT / "gui" / "widgets_tab.py").read_text()
+    keys = set(widgets.TITLES.values())
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.Assign):
+            continue
+        name = node.targets[0].id
+        if name in ("CHOICE_TITLES", "SWITCH_TITLES", "DESCRIPTIONS", "HINTS"):
+            keys |= set(ast.literal_eval(node.value).values())
+        if name == "CHOICE_LABELS":
+            keys |= {text for labels in ast.literal_eval(node.value).values() for text in labels.values()}
+        if name == "SECTIONS":
+            keys |= {title for sections in ast.literal_eval(node.value).values() for title, _keys in sections}
+        if name == "NUMBER_ROWS":
+            keys |= set(ast.literal_eval(node.value).values())
+        if name == "SLIDER_ROWS":
+            keys |= {title for title, _step, _unit in ast.literal_eval(node.value).values()}
     return keys
 
 
