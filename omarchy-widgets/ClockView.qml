@@ -66,6 +66,7 @@ Item {
     font.letterSpacing: view.look.spacing * view.scale
     style: view.look.outline ? Text.Outline : Text.Normal
     styleColor: view.look.outline ? view.look.outlineColor : "transparent"
+    PartHit { part: parent.part }
   }
 
   // --- the four faces ------------------------------------------------------------------
@@ -100,6 +101,7 @@ Item {
       onHourHandChanged: requestPaint()
       onMinuteHandChanged: requestPaint()
       onSecondHandChanged: requestPaint()
+      PartHit { part: "face" }
       onPaint: {
         var ctx = getContext("2d")
         ctx.reset()
@@ -153,6 +155,7 @@ Item {
     height: Math.round(w * 1.45)
     radius: Math.round(10 * view.scale)
     color: view.paint("flip_card", Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.8))
+    PartHit { part: "flip_card" }
     Part {
       anchors.centerIn: parent
       part: card.part
@@ -215,6 +218,7 @@ Item {
       }
       return out
     }
+    PartHit { part: "words" }
   }
   // StyledText takes #aarrggbb.
   function css(c) {

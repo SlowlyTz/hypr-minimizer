@@ -38,6 +38,7 @@ Item {
           width: parent.width
           height: label.implicitHeight
           WidgetText {
+            part: "label"
             id: label
             anchors.left: parent.left
             width: parent.width - value.implicitWidth - Math.round(10 * view.scale)
@@ -47,6 +48,7 @@ Item {
             color: view.paint("label", Color.foreground)
           }
           WidgetText {
+            part: "value"
             id: value
             anchors.right: parent.right
             look: view.look; factor: view.scale; points: 14; strong: true
@@ -60,11 +62,13 @@ Item {
           height: Math.max(3, Math.round(6 * view.scale))
           radius: height / 2
           color: view.paint("bar_track", Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.15))
+          PartHit { part: "bar_track"; anchors.margins: -3 }
           Rectangle {
             width: parent.width * Math.min(1, modelData.used / Math.max(1, modelData.size))
             height: parent.height
             radius: parent.radius
             color: view.paint("bar", view.tint)
+            PartHit { part: "bar"; anchors.margins: -3 }
           }
         }
       }

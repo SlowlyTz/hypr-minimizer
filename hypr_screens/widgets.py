@@ -208,6 +208,18 @@ def part_defaults(kind: str) -> dict[str, str]:
     return {part: default for _group, parts in [*PARTS[kind], LOOK_PARTS] for part, _title, default in parts}
 
 
+def part_titles(kind: str, widget: dict) -> dict[str, str]:
+    """The parts a widget has now (a clock only its style's), with their names."""
+    titles = {}
+    for group, parts in [*PARTS[kind], LOOK_PARTS]:
+        styles = PART_GROUP_STYLES.get(group) if kind == "clock" else None
+        if styles and widget.get("clock_style", "digital") not in styles:
+            continue
+        for part, title, _default in parts:
+            titles[part] = t(title)
+    return titles
+
+
 def clean_colors(kind: str, raw: object) -> dict[str, str]:
     """Only known parts with a valid color ("accent", "theme:<name>", "#rrggbb[aa]")."""
     known = part_defaults(kind)
@@ -389,10 +401,16 @@ def export(cfg: dict) -> None:
         "ranges": {kind: {"size": SIZE_RANGES[kind], "width": WIDTH_RANGES.get(kind)} for kind in KINDS},
         "kinds": KINDS,
         "parts": {kind: part_defaults(kind) for kind in KINDS},
+        "partTitles": {kind: part_titles(kind, widgets[kind]) for kind in KINDS},
         "texts": {
             **{kind: t(title) for kind, title in TITLES.items()},
             "hint": t("Drag to move  ·  pull edges and corners to resize  ·  scroll to turn (Shift: fine)"),
             "save": t("Save"),
+            "move": t("Move"),
+            "colors": t("Colors"),
+            "hintColors": t("Click a part of a widget to give it a color"),
+            "recent": t("Recent"),
+            "byDefault": t("Default"),
             "cancel": t("Cancel"),
             "lyricsSample": t("The lyrics show here while a song plays"),
             "cpu": "CPU",

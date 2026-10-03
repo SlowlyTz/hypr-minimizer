@@ -67,6 +67,9 @@ Item {
     }
   }
 
+  // In the color mode a click anywhere picks the bars (the palette lists the rest).
+  PartHit { z: 5; part: "bars" }
+
   // --- bars (bottom, mirrored) ------------------------------------------------------------
 
   Row {

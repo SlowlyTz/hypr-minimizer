@@ -43,6 +43,7 @@ Item {
       anchors.left: parent.left
       anchors.top: parent.top
       text: gauge.name
+      PartHit { part: gauge.key + "_label" }
       color: view.paint(gauge.key + "_label", Color.foreground)
       opacity: view.service && view.service.hasColor("system", gauge.key + "_label") ? 1 : 0.75
       font.family: view.look.family
@@ -56,6 +57,7 @@ Item {
       anchors.right: parent.right
       anchors.top: parent.top
       text: gauge.value
+      PartHit { part: gauge.key + "_value" }
       color: view.paint(gauge.key + "_value", view.tint)
       font.family: view.look.family
       font.pixelSize: Math.round(14 * view.scale)
@@ -100,6 +102,7 @@ Item {
         function onLineChanged() { curve.requestPaint() }
         function onFillChanged() { curve.requestPaint() }
       }
+      PartHit { part: gauge.key + "_line" }
     }
   }
 

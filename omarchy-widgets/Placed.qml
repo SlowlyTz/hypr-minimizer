@@ -19,6 +19,13 @@ Item {
   property bool editable: false
   // This screen's id: with same_place off the widget has a place per screen.
   property string screenKey: ""
+  // For PartHit: the widget it belongs to, the arrange tool's color mode and
+  // the part picked there.
+  readonly property bool isPlaced: true
+  readonly property bool colorMode: editable && !!service && service.colorMode
+  readonly property string selectedPart: service && service.selection && service.selection.kind === kind
+                                         ? service.selection.part : ""
+  function pickPart(part, point) { service.selectPart(kind, part, screenKey, point) }
   default property alias content: holder.data
 
   readonly property var spot: service ? service.placement(kind, screenKey) : { x: 0.5, y: 0.5, rotation: 0, size: 100, width: 0 }
@@ -164,6 +171,7 @@ Item {
       radius: placed.settings ? placed.settings.card_radius : 0
       readonly property color base: placed.service ? placed.service.colorOf(placed.kind, "card", Color.background) : Color.background
       color: Qt.rgba(base.r, base.g, base.b, base.a * (placed.settings ? placed.settings.card_opacity / 100 : 0.45))
+      PartHit { part: "card" }
     }
 
     Item {
@@ -198,13 +206,13 @@ Item {
 
   DragHandler {
     id: drag
-    enabled: placed.editable && !placed.resize
+    enabled: placed.editable && !placed.resize && !placed.colorMode
     target: placed
     onActiveChanged: if (!active) placed.commit()
   }
 
   WheelHandler {
-    enabled: placed.editable && !placed.resize
+    enabled: placed.editable && !placed.resize && !placed.colorMode
     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
     onWheel: function(event) {
       var step = (event.modifiers & Qt.ShiftModifier) ? 1 : 5
@@ -215,7 +223,7 @@ Item {
 
   // Four corners and four edges, on the frame.
   Repeater {
-    model: placed.editable ? [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]] : []
+    model: placed.editable && !placed.colorMode ? [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]] : []
     Item {
       id: handle
       required property var modelData

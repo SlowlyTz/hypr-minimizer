@@ -152,6 +152,8 @@ Item {
         Behavior on opacity { NumberAnimation { duration: view.scrollMs * 0.8; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: view.scrollMs * 0.8; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 350 } }
+        PartHit { part: sung ? (view.highlight === "line" ? "current" : view.highlight === "word" ? "sung" : "waiting")
+                             : (distance > 0 ? "upcoming" : "past") }
       }
     }
   }

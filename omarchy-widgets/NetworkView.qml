@@ -35,12 +35,14 @@ Item {
     height: Math.round((view.curves ? 46 : 20) * view.scale)
 
     WidgetText {
+      part: "labels"
       anchors.left: parent.left
       look: view.look; factor: view.scale; points: 14
       text: gauge.name
       color: view.paint("labels", Color.foreground)
     }
     WidgetText {
+      part: gauge.key + "_value"
       anchors.right: parent.right
       look: view.look; factor: view.scale; points: 14; strong: true
       text: view.service ? view.service.rate(gauge.value) : ""
@@ -78,6 +80,7 @@ Item {
         function onHistoryChanged() { curve.requestPaint() }
         function onLineChanged() { curve.requestPaint() }
       }
+      PartHit { part: gauge.key + "_line" }
     }
   }
 

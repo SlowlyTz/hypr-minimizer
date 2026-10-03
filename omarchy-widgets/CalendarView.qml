@@ -56,6 +56,7 @@ Item {
     spacing: Math.round(6 * view.scale)
 
     WidgetText {
+      part: "month"
       visible: !(view.settings && view.settings.show_month === false)
       anchors.horizontalCenter: parent.horizontalCenter
       look: view.look; factor: view.scale; points: 20; strong: true
@@ -69,6 +70,7 @@ Item {
       Repeater {
         model: view.weeks ? 8 : 7
         WidgetText {
+          part: "weekdays"
           required property int index
           width: view.cell
           horizontalAlignment: Text.AlignHCenter
@@ -93,11 +95,13 @@ Item {
             height: width
             radius: width / 2
             color: view.paint("today", view.tint)
+            PartHit { part: "today" }
           }
           WidgetText {
             anchors.centerIn: parent
             look: view.look; factor: view.scale; points: 14
             strong: !parent.weekCell && !!parent.info.today
+            part: parent.weekCell ? "weeks" : parent.info.today ? "today_text" : parent.info.here ? "days" : "other_days"
             text: parent.weekCell ? view.isoWeek(view.cells[(index / 8) * 7 + 3].date) : parent.info.day
             color: parent.weekCell ? view.paint("weeks", Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.7))
                    : parent.info.today ? view.paint("today_text", Color.background)

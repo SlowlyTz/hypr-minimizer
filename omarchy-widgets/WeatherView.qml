@@ -37,6 +37,7 @@ Item {
     Row {
       spacing: Math.round(14 * view.scale)
       WidgetText {
+        part: "icon"
         anchors.verticalCenter: parent.verticalCenter
         look: view.look; factor: view.scale; points: 64; strong: true
         text: view.report && view.service ? view.service.weatherIcon(view.report.code, view.report.day) : String.fromCodePoint(0xf0595)
@@ -46,11 +47,13 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: Math.round(2 * view.scale)
         WidgetText {
+          part: "temp"
           look: view.look; factor: view.scale; points: 44; strong: true
           text: view.report ? view.degrees(view.report.temp) : "–"
           color: view.paint("temp", Color.foreground)
         }
         WidgetText {
+          part: "place"
           visible: view.shows("show_place")
           look: view.look; factor: view.scale; points: 15
           text: view.service && view.service.weatherPlace.name ? view.service.weatherPlace.name
@@ -58,6 +61,7 @@ Item {
           color: view.paint("place", Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.7))
         }
         WidgetText {
+          part: "details"
           visible: view.shows("show_details") && !!view.report
           look: view.look; factor: view.scale; points: 13
           text: view.report ? (view.texts.feelsLike || "Feels like") + " " + view.degrees(view.report.feels) + "  ·  "
@@ -76,18 +80,21 @@ Item {
           required property var modelData
           spacing: Math.round(2 * view.scale)
           WidgetText {
+            part: "forecast"
             anchors.horizontalCenter: parent.horizontalCenter
             look: view.look; factor: view.scale; points: 13
             text: new Date(modelData.date + "T12:00:00").toLocaleDateString(view.locale, "ddd")
             color: view.paint("forecast", Color.foreground)
           }
           WidgetText {
+            part: "icon"
             anchors.horizontalCenter: parent.horizontalCenter
             look: view.look; factor: view.scale; points: 24; strong: true
             text: view.service ? view.service.weatherIcon(modelData.code, true) : ""
             color: view.paint("icon", view.tint)
           }
           WidgetText {
+            part: "forecast"
             anchors.horizontalCenter: parent.horizontalCenter
             look: view.look; factor: view.scale; points: 13
             text: view.degrees(modelData.max) + " / " + view.degrees(modelData.min)

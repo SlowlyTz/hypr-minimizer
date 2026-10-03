@@ -57,6 +57,7 @@ Item {
     anchors.horizontalCenter: parent.horizontalCenter
     readonly property var stamp: [view.charge, view.ring, view.track, view.size]
     onStampChanged: requestPaint()
+    PartHit { part: view.charging ? "charging" : view.low ? "low_ring" : "ring" }
     onPaint: {
       var ctx = getContext("2d")
       ctx.reset()
@@ -77,6 +78,7 @@ Item {
   Column {
     anchors.centerIn: canvas
     WidgetText {
+      part: "percent"
       visible: view.shows("show_percent")
       anchors.horizontalCenter: parent.horizontalCenter
       look: view.look; factor: view.scale; points: 30; strong: true
@@ -92,6 +94,7 @@ Item {
     }
   }
   WidgetText {
+    part: "time_left"
     id: below
     visible: view.shows("show_remaining") && view.timeText !== ""
     anchors.top: canvas.bottom

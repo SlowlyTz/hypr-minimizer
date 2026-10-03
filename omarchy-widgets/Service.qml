@@ -45,6 +45,8 @@ Item {
   // The widgets there are, and each one's parts with a color: part -> default.
   property var kinds: ["visualizer", "lyrics", "clock", "system"]
   property var parts: ({})
+  // part -> its name in the settings window's language, per widget.
+  property var partTitles: ({})
   // The theme's colors by name, from its colors.toml (follows a theme change).
   property var palette: ({})
 
@@ -73,6 +75,7 @@ Item {
     root.ranges = data.ranges || {}
     if (data.kinds) root.kinds = data.kinds
     root.parts = data.parts || {}
+    root.partTitles = data.partTitles || {}
     if (!root.editing) root.draft = root.placementsFromSettings()
     if (root.widget("visualizer") && root.cavaKey !== key && key !== "") root.restartCava()
   }
@@ -835,17 +838,42 @@ Item {
 
   // --- arranging ------------------------------------------------------------------------
 
+  // The color mode: a click on a part of a widget picks it (`selection`:
+  // {kind, part, screen, x, y}) and the palette sets its color in the draft.
+  property bool colorMode: false
+  property var selection: null
+  // Own colors used last ("#rrggbb[aa]"), newest first.
+  property var recentColors: []
+  function selectPart(kind, part, screen, point) {
+    root.selection = { kind: kind, part: part, screen: screen, x: point.x, y: point.y }
+  }
+  function setPartColor(kind, part, value, remember) {
+    var colors = Object.assign({}, root.placement(kind).colors || {})
+    if (value) colors[part] = value
+    else delete colors[part]
+    root.changePlacement(kind, { colors: colors })
+    if (remember && value && value.charAt(0) === "#") {
+      var recent = root.recentColors.filter(function(c) { return c !== value })
+      recent.unshift(value)
+      root.recentColors = recent.slice(0, 8)
+    }
+  }
+
   function startEditing() {
     Hyprland.refreshMonitors()
     root.draft = root.placementsFromSettings()
+    root.colorMode = false
+    root.selection = null
     root.editing = true
   }
   function cancelEditing() {
     root.draft = root.placementsFromSettings()
+    root.selection = null
     root.editing = false
   }
   function saveEditing() {
     if (saver.running) return
+    root.selection = null
     saver.command = ["hypr-screens", "widgets", "save", JSON.stringify(root.draft)]
     saver.running = true
   }
@@ -892,7 +920,8 @@ Item {
       id: canvas
       anchors.fill: parent
       focus: panel.editLayer
-      Keys.onEscapePressed: root.cancelEditing()
+      // Esc closes the palette first, then cancels.
+      Keys.onEscapePressed: root.selection ? root.selection = null : root.cancelEditing()
       Keys.onReturnPressed: root.saveEditing()
 
       // An empty desktop to arrange on: the wallpaper, over all windows.
@@ -929,9 +958,20 @@ Item {
           anchors.centerIn: parent
           spacing: Style.space(16)
 
+          ToolButton {
+            label: root.texts.move || "Move"
+            primary: !root.colorMode
+            onClicked: { root.colorMode = false; root.selection = null }
+          }
+          ToolButton {
+            label: root.texts.colors || "Colors"
+            primary: root.colorMode
+            onClicked: root.colorMode = true
+          }
           Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.texts.hint || "Drag the widgets  ·  scroll to turn (Shift: fine)"
+            text: root.colorMode ? (root.texts.hintColors || "Click a part of a widget to color it")
+                                 : (root.texts.hint || "Drag the widgets  ·  scroll to turn (Shift: fine)")
             color: "white"
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -939,6 +979,15 @@ Item {
           ToolButton { label: root.texts.cancel || "Cancel"; onClicked: root.cancelEditing() }
           ToolButton { label: root.texts.save || "Save"; primary: true; onClicked: root.saveEditing() }
         }
+      }
+
+      ColorPalette {
+        id: colorPalette
+        z: 20
+        service: root
+        visible: panel.editLayer && root.colorMode && !!root.selection && root.selection.screen === root.screenId(panel.modelData)
+        x: root.selection ? Math.max(8, Math.min(canvas.width - width - 8, root.selection.x + 24)) : 0
+        y: root.selection ? Math.max(8, Math.min(canvas.height - height - 8, root.selection.y - height / 3)) : 0
       }
 
       Repeater {

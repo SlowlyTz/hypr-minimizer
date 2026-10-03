@@ -90,6 +90,7 @@ Item {
       width: view.textWidth
       spacing: Math.round(4 * view.scale)
       WidgetText {
+        part: "title"
         visible: view.shows("show_title")
         width: parent.width
         horizontalAlignment: view.column ? Text.AlignHCenter : Text.AlignLeft
@@ -99,6 +100,7 @@ Item {
         color: view.paint("title", Color.foreground)
       }
       WidgetText {
+        part: "artist"
         visible: view.shows("show_artist") && view.artist !== ""
         width: parent.width
         horizontalAlignment: view.column ? Text.AlignHCenter : Text.AlignLeft
@@ -108,6 +110,7 @@ Item {
         color: view.paint("artist", view.tint)
       }
       WidgetText {
+        part: "album"
         visible: view.shows("show_album") && view.album !== ""
         width: parent.width
         horizontalAlignment: view.column ? Text.AlignHCenter : Text.AlignLeft
@@ -126,16 +129,19 @@ Item {
           height: Math.max(2, Math.round(4 * view.scale))
           radius: height / 2
           color: view.paint("progress_track", Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.2))
+          PartHit { part: "progress_track"; anchors.margins: -4 }
           Rectangle {
             width: view.length > 0 ? parent.width * Math.min(1, view.position / view.length) : (view.editing ? parent.width * 0.4 : 0)
             height: parent.height
             radius: parent.radius
             color: view.paint("progress", view.tint)
             Behavior on width { NumberAnimation { duration: 500 } }
+            PartHit { part: "progress"; anchors.margins: -4 }
           }
         }
       }
       WidgetText {
+        part: "time"
         visible: view.shows("show_time") && (view.length > 0 || view.editing)
         width: parent.width
         horizontalAlignment: view.column ? Text.AlignHCenter : Text.AlignLeft
@@ -155,6 +161,7 @@ Item {
             { glyph: 0xf04ad, act: "next" }
           ]
           WidgetText {
+            part: "buttons"
             required property var modelData
             look: view.look; factor: view.scale; points: 26; strong: true
             text: String.fromCodePoint(modelData.glyph)

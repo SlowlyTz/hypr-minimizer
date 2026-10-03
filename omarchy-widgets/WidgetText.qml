@@ -8,6 +8,8 @@ Text {
   property real factor: 1
   property real points: 14
   property bool strong: false
+  // The part it shows, so the arrange tool's color mode can pick it.
+  property string part: ""
 
   font.family: look.family
   font.pixelSize: Math.max(6, Math.round(points * factor))
@@ -15,4 +17,6 @@ Text {
   font.letterSpacing: look.spacing * factor
   style: look.outline ? Text.Outline : Text.Normal
   styleColor: look.outline ? look.outlineColor : "transparent"
+
+  PartHit { part: parent.part }
 }
