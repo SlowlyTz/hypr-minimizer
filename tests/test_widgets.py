@@ -176,3 +176,11 @@ def test_media_player_and_lyrics_motion():
     assert state["lyrics"]["player"] == "spotify" and state["visualizer"]["player"] == ""
     assert (state["lyrics"]["scroll_ms"], state["lyrics"]["current_size"]) == (150, 170)
     assert "source = spotify" in widgets.cava_config(32, "spotify")
+
+
+def test_visualizer_styles_and_motion():
+    v = widgets.normalize({"visualizer": {"style": "circle", "gap": 999, "sensitivity": 1, "smoothing": 30,
+                                          "peaks": True}})["visualizer"]
+    assert (v["style"], v["gap"], v["sensitivity"], v["smoothing"]) == ("circle", 200, 20, 30)
+    assert v["peaks"]
+    assert "noise_reduction = 30" in widgets.cava_config(16, "auto", 30)

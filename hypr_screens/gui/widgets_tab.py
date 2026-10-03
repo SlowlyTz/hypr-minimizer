@@ -29,7 +29,7 @@ DEBOUNCE_MS = 300
 LOOK = ["color", "colors", "font", "effect", "card", "opacity"]
 VISIBILITY = ("Visibility", ["desktops", "only_empty", "hide_on_battery", "above"])
 SECTIONS = {
-    "visualizer": [("Placement", ["where", "screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["player", "bars", "style"]),
+    "visualizer": [("Placement", ["where", "screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["player", "bars", "style", "gap", "motion"]),
                    ("Look", LOOK)],
     "lyrics": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["player", "highlight", "lines", "hide_paused"]),
                ("Look", ["align", "current_size", "scroll_ms", *LOOK])],
@@ -43,7 +43,8 @@ SECTIONS = {
 EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"], None),
              "effect": ("Effect", ["effect", "effect_strength"], None),
              "card": ("Background card", ["card_radius", "card_padding", "card_opacity", "card_blur"], "card"),
-             "date_group": ("Date", ["weekday", "date_format", "date_pattern"], "date")}
+             "date_group": ("Date", ["weekday", "date_format", "date_pattern"], "date"),
+             "motion": ("Motion", ["sensitivity", "smoothing", "peaks"], None)}
 # Choices that change which rows there are.
 REBUILDS = {"where", "date_format", "clock_style"}
 ICONS = {"visualizer": "audio-volume-high-symbolic", "lyrics": "format-justify-center-symbolic",
@@ -56,7 +57,8 @@ CHOICE_TITLES = {"where": "Where", "style": "Style", "highlight": "Highlight", "
                  "clock_style": "Style", "date_format": "Date format"}
 CHOICE_LABELS = {
     "where": {"bar": "In the bar", "desktop": "On the desktop", "both": "Bar and desktop"},
-    "style": {"bottom": "Bars from the bottom", "mirrored": "Mirrored from the middle"},
+    "style": {"bottom": "Bars from the bottom", "mirrored": "Mirrored from the middle", "wave": "Wave",
+              "dots": "Dots", "circle": "Circle"},
     "highlight": {"line": "Current line", "word": "Word by word", "off": "Off"},
     "align": {"center": "Centered", "left": "Left", "right": "Right"},
     "hours": {"24": "24-hour", "12": "12-hour"},
@@ -71,13 +73,15 @@ SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "s
                  "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves",
                  "card_blur": "Blur behind the card", "only_empty": "Only on an empty desktop",
                  "hide_on_battery": "Hide on battery", "above": "Above the windows",
-                 "same_place": "Same place on every screen", "weekday": "Show the weekday"}
+                 "same_place": "Same place on every screen", "weekday": "Show the weekday",
+                 "peaks": "Peak marks"}
 # key: (title, step, unit); the range is widgets.RANGES.
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
                "card_radius": ("Corners", 2, " px"), "card_padding": ("Room around", 2, " px"),
                "card_opacity": ("Card opacity", 5, " %"), "scroll_ms": ("Scroll time", 50, " ms"),
-               "current_size": ("Size of the line being sung", 5, " %")}
+               "current_size": ("Size of the line being sung", 5, " %"), "gap": ("Room between bars", 5, " %"),
+               "sensitivity": ("Sensitivity", 10, " %"), "smoothing": ("Smoothing", 5, " %")}
 # Whole numbers typed in (or stepped with − and +): key: title; the range is widgets.RANGES.
 NUMBER_ROWS = {"lines": "Lines"}
 HINTS = {
@@ -506,6 +510,8 @@ class WidgetsTab:
     def expander_summary(self, key: str, widget: dict) -> str:
         if key == "font":
             return f"{widget['font_family'] or t('The Omarchy font')} · {t(CHOICE_LABELS['font_weight'][widget['font_weight']])}"
+        if key == "motion":
+            return f"{widget['sensitivity']} % · {widget['smoothing']} %" + (f" · {t('Peak marks')}" if widget["peaks"] else "")
         if key == "date_group":
             return t(CHOICE_LABELS["date_format"][widget["date_format"]]) if widget["date"] else t("Off")
         if key == "effect":

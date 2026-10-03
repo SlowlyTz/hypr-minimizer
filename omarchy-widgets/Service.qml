@@ -29,7 +29,7 @@ Item {
   readonly property string wallpaper: Quickshell.env("HOME") + "/.local/state/omarchy/current/background"
   property var widgets: ({})
   property string cavaConfig: ""
-  property string cavaSource: "auto"
+  property string cavaKey: ""
   property string cpuTemperatureFile: ""
   property string fontFamily: ""
   // Texts in the settings window's language, and its locale for the date.
@@ -62,11 +62,10 @@ Item {
   function parseSettings(text) {
     var data
     try { data = JSON.parse(String(text)) } catch (e) { return }
-    var bars = root.widget("visualizer") ? root.widget("visualizer").bars : 0
-    var source = root.cavaSource
+    var key = root.cavaKey
     root.widgets = data.widgets || {}
     root.cavaConfig = String(data.cava || "")
-    root.cavaSource = String(data.cavaSource || "auto")
+    root.cavaKey = String(data.cavaKey || "")
     root.cpuTemperatureFile = String(data.cpuTemperature || "")
     root.fontFamily = String(data.font || "")
     root.texts = data.texts || {}
@@ -75,7 +74,7 @@ Item {
     if (data.kinds) root.kinds = data.kinds
     root.parts = data.parts || {}
     if (!root.editing) root.draft = root.placementsFromSettings()
-    if (root.widget("visualizer") && (root.widget("visualizer").bars !== bars || root.cavaSource !== source)) root.restartCava()
+    if (root.widget("visualizer") && root.cavaKey !== key && key !== "") root.restartCava()
   }
 
   FileView {

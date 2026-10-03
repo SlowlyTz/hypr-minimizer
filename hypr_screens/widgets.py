@@ -60,7 +60,8 @@ PART_GROUP_STYLES = {"Time": ["digital", "flip", "words"], "Analog clock": ["ana
                      "Word clock": ["words"]}
 LOOK_PARTS = ("Card and effect", [("card", "Card", "theme:background"), ("effect", "Effect", "auto")])
 PARTS = {
-    "visualizer": [("Bars", [("bars", "Bars", "accent"), ("bars_end", "Bar tips", "auto")])],
+    "visualizer": [("Bars", [("bars", "Bars", "accent"), ("bars_end", "Bar tips", "auto"),
+                             ("peaks", "Peak marks", "theme:foreground")])],
     "lyrics": [("Lines", [("current", "Line being sung", "accent"), ("sung", "Words already sung", "accent"),
                           ("waiting", "Words still to sing", "theme:foreground"),
                           ("upcoming", "Coming lines", "theme:foreground"), ("past", "Lines sung", "theme:foreground")])],
@@ -84,6 +85,7 @@ CENTER = {"x": 0.5, "y": 0.5, "rotation": 0}
 ALL_SCREENS = {"mode": "all", "screen": ""}
 BASE = {
     "visualizer": {"enabled": False, "where": "both", "monitors": ALL_SCREENS, "player": "", "bars": 32, "style": "bottom",
+                   "gap": 50, "sensitivity": 100, "smoothing": 77, "peaks": False,
                    "color": "accent", "opacity": 100, "size": 160, "width": 0, "placed": False, **CENTER},
     "lyrics": {"enabled": False, "monitors": ALL_SCREENS, "player": "", "highlight": "line", "align": "center",
                "lines": 3, "hide_paused": False, "scroll_ms": 550, "current_size": 115, "color": "accent", "opacity": 100, "size": 200, "width": 0,
@@ -99,7 +101,9 @@ DEFAULTS = {kind: {**base, **STYLE, **VISIBILITY, **PLACES} for kind, base in BA
 # The values a setting can take; the first-listed default is in DEFAULTS.
 STYLE_CHOICES = {"font_weight": FONT_WEIGHTS, "effect": EFFECTS}
 CHOICES = {
-    "visualizer": {"where": WHERE, "style": ["bottom", "mirrored"], "color": COLORS, **STYLE_CHOICES},
+    # bars from the bottom or from the middle, a wave, dots, or bars around a circle.
+    "visualizer": {"where": WHERE, "style": ["bottom", "mirrored", "wave", "dots", "circle"], "color": COLORS,
+                   **STYLE_CHOICES},
     # line: the line being sung in the accent color, word: each word as it is
     # sung, off: no color, only the size sets it apart.
     "lyrics": {"highlight": ["line", "word", "off"], "align": ["center", "left", "right"], "color": TEXT_COLORS,
@@ -113,7 +117,8 @@ TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "sys
 LOCALES = {"en": "en_US", "de": "de_DE", "es": "es_ES", "fr": "fr_FR", "it": "it_IT"}
 # key: (minimum, maximum)
 RANGES = {"bars": (8, 64), "lines": (1, 10), "opacity": (20, 100), "rotation": (-360, 360),
-          "scroll_ms": (150, 1500), "current_size": (100, 170),
+          "scroll_ms": (150, 1500), "current_size": (100, 170), "gap": (0, 200), "sensitivity": (20, 300),
+          "smoothing": (0, 100),
           "letter_spacing": (-2, 20), "effect_strength": (0, 100), "card_radius": (0, 60), "card_padding": (0, 80),
           "card_opacity": (5, 100)}
 # The visualizer's and the lyrics' size is their height in pixels (the lyrics'
@@ -292,7 +297,7 @@ def audio_source(player: str) -> str:
     return player
 
 
-def cava_config(bars: int, source: str = "auto") -> str:
+def cava_config(bars: int, source: str = "auto", smoothing: int = 77) -> str:
     """cava prints one line per frame: bar values 0..1000 separated by ';'.
     It sleeps after 2 s of silence, so the visualizer costs nothing then."""
     return "\n".join([
@@ -312,7 +317,7 @@ def cava_config(bars: int, source: str = "auto") -> str:
         "bar_delimiter = 59",
         "frame_delimiter = 10",
         "[smoothing]",
-        "noise_reduction = 77",
+        f"noise_reduction = {smoothing}",
         "",
     ])
 
@@ -322,15 +327,16 @@ def export(cfg: dict) -> None:
     widgets = normalize(cfg.get("widgets"))
     directory = settings_file().parent
     directory.mkdir(parents=True, exist_ok=True)
-    cava = cava_config(widgets["visualizer"]["bars"], audio_source(widgets["visualizer"]["player"]))
+    visualizer = widgets["visualizer"]
+    cava = cava_config(visualizer["bars"], audio_source(visualizer["player"]), visualizer["smoothing"])
     if not cava_file().exists() or cava_file().read_text() != cava:
         cava_file().write_text(cava)
     language = i18n.set_language(cfg.get("language"))
     data = {
         "widgets": widgets,
         "cava": str(cava_file()),
-        # Changes with the visualizer's player, so the plugin restarts cava.
-        "cavaSource": cava.split("source = ")[1].split("\n")[0],
+        # When cava's settings change (player, smoothing, bars), the plugin restarts it.
+        "cavaKey": cava,
         "cpuTemperature": cpu_temperature_file(),
         "font": font(),
         "locale": LOCALES.get(language, "en_US"),

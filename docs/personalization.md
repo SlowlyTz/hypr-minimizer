@@ -22,7 +22,7 @@ Widgets sit on the desktop **behind the windows**. The Widgets page lists them w
 
 | Widget | Shows | Settings |
 |---|---|---|
-| **Visualizer** | bars moving with the sound playing (cava) | in the bar, on the desktop or both; bars, style (from the bottom or mirrored from the middle) |
+| **Visualizer** | bars moving with the sound playing (cava) | in the bar, on the desktop or both; the app it listens to; bars, style (from the bottom, mirrored from the middle, wave, dots, circle), room between bars, sensitivity, smoothing, peak marks |
 | **Lyrics** | the words of the song playing, in time with the music (from lrclib.net) | highlight (current line, word by word, off), alignment, lines (1–10, typed in), hide while paused |
 | **Clock** | time and date | style (digital, analog, flip cards, in words – "quarter past six" in the app's language), 24 or 12 hours, seconds, weekday, date format (long, medium, short, ISO or an own Qt pattern), a second time zone |
 | **System** | CPU, memory and temperature with a curve of the last two minutes | each gauge on or off, curves on or off |
