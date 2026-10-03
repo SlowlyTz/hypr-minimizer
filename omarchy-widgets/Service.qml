@@ -36,9 +36,15 @@ Item {
   // kind -> {size: [min, max], width: [min, max] or null}, from widgets.py.
   property var ranges: ({})
   property bool editing: false
-  // kind -> {x, y, rotation, size, width}: the centre as fractions of the
-  // screen, degrees, and the size (width 0: it follows the size).
+  // kind -> {x, y, rotation, size, width, colors}: the centre as fractions of
+  // the screen, degrees, the size (width 0: it follows the size) and the
+  // colors of its parts (only the ones set).
   property var draft: ({})
+  // The widgets there are, and each one's parts with a color: part -> default.
+  property var kinds: ["visualizer", "lyrics", "clock", "system"]
+  property var parts: ({})
+  // The theme's colors by name, from its colors.toml (follows a theme change).
+  property var palette: ({})
 
   // --- settings ------------------------------------------------------------------
 
@@ -62,8 +68,90 @@ Item {
     root.texts = data.texts || {}
     root.locale = String(data.locale || "")
     root.ranges = data.ranges || {}
+    if (data.kinds) root.kinds = data.kinds
+    root.parts = data.parts || {}
     if (!root.editing) root.draft = root.placementsFromSettings()
     if (root.widget("visualizer") && root.widget("visualizer").bars !== bars) root.restartCava()
+  }
+
+  FileView {
+    id: themeFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var found = {}
+      var rows = String(text()).split("\n")
+      for (var i = 0; i < rows.length; i++) {
+        var match = rows[i].match(/^\s*([a-z_]+)\s*=\s*"(#[0-9a-fA-F]{6})"/)
+        if (match) found[match[1]] = match[2]
+      }
+      root.palette = found
+    }
+  }
+  // A theme switch replaces the file; the shell's colors change with it.
+  Connections {
+    target: Color
+    function onAccentChanged() { themeFile.reload() }
+  }
+
+  function themeColor(name) {
+    if (root.palette[name]) return root.hexColor(root.palette[name])
+    if (name === "foreground") return Color.foreground
+    if (name === "background") return Color.background
+    if (name === "muted") return Color.muted
+    if (name === "red") return Color.urgent
+    return Color.accent
+  }
+  // "#rrggbb" or "#rrggbbaa" (CSS order; Qt reads #aarrggbb).
+  function hexColor(value) {
+    var hex = String(value).slice(1)
+    var alpha = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+    return Qt.rgba(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255,
+                   parseInt(hex.slice(4, 6), 16) / 255, alpha)
+  }
+  function colorValue(kind, value) {
+    if (value === "accent") return root.tint(kind)
+    if (String(value).indexOf("theme:") === 0) return root.themeColor(String(value).slice(6))
+    if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(String(value))) return root.hexColor(value)
+    return null
+  }
+  // A part's color: set by the user (in the draft while arranging), else its
+  // default; `fallback` where the default is "auto".
+  function colorOf(kind, part, fallback) {
+    var spot = root.draft[kind]
+    var set = spot && spot.colors ? spot.colors[part] : undefined
+    var value = set || (root.parts[kind] ? root.parts[kind][part] : undefined) || "accent"
+    var color = value === "auto" ? null : root.colorValue(kind, value)
+    return color === null ? (fallback !== undefined ? fallback : root.tint(kind)) : color
+  }
+  function hasColor(kind, part) {
+    var spot = root.draft[kind]
+    return !!(spot && spot.colors && spot.colors[part])
+  }
+
+  readonly property var weights: ({ light: 300, regular: 400, medium: 500, bold: 700, black: 900 })
+  // A widget's text: font, weight, spacing and the outline (its effect).
+  function textLook(kind) {
+    var w = root.widget(kind)
+    var weight = w ? (root.weights[w.font_weight] || 700) : 700
+    var strength = w ? w.effect_strength / 100 : 0.35
+    return {
+      family: w && w.font_family ? w.font_family : root.fontFamily,
+      weight: weight,
+      lighter: Math.max(300, weight - 300),
+      spacing: w ? w.letter_spacing : 0,
+      outline: !!(w && w.effect === "outline" && strength > 0),
+      outlineColor: root.colorOf(kind, "effect", Qt.rgba(0, 0, 0, strength))
+    }
+  }
+  // Which layer a widget sits on: below or above the windows, with blur
+  // behind its card or without.
+  function groupOf(kind) {
+    var w = root.widget(kind)
+    if (!w) return "bottom"
+    return (w.above ? "top" : "bottom") + (w.card && w.card_blur ? "-blur" : "")
   }
 
   function widget(kind) { return root.widgets ? (root.widgets[kind] || null) : null }
@@ -89,12 +177,12 @@ Item {
     for (var kind in root.widgets) {
       var w = root.widgets[kind]
       out[kind] = { x: Number(w.x), y: Number(w.y), rotation: Number(w.rotation),
-                    size: Number(w.size), width: Number(w.width || 0) }
+                    size: Number(w.size), width: Number(w.width || 0), colors: Object.assign({}, w.colors || {}) }
     }
     return out
   }
   function placement(kind) {
-    return root.draft[kind] || { x: 0.5, y: 0.5, rotation: 0, size: { visualizer: 160, lyrics: 200 }[kind] || 100, width: 0 }
+    return root.draft[kind] || { x: 0.5, y: 0.5, rotation: 0, size: { visualizer: 160, lyrics: 200 }[kind] || 100, width: 0, colors: {} }
   }
   function changePlacement(kind, changes) {
     var next = Object.assign({}, root.draft)
@@ -455,14 +543,23 @@ Item {
 
   // --- the layers -----------------------------------------------------------------------
 
-  readonly property var kinds: ["visualizer", "lyrics", "clock", "system"]
-
-  function anyOn(screen) {
+  // Is the widget on this screen, and (without a group: on any layer) in this group?
+  function shows(kind, screen, group) {
+    return root.onDesktop(kind) && root.screenMatches(kind, screen) && (!group || root.groupOf(kind) === group)
+  }
+  function anyOn(screen, group) {
     for (var i = 0; i < root.kinds.length; i++) {
-      if (root.onDesktop(root.kinds[i]) && root.screenMatches(root.kinds[i], screen)) return true
+      if (root.shows(root.kinds[i], screen, group)) return true
     }
     return false
   }
+
+  // Each widget's view; a view has `service` and `editing`.
+  Component { id: visualizerView; VisualizerView { service: root } }
+  Component { id: lyricsView; LyricsView { service: root } }
+  Component { id: clockView; ClockView { service: root } }
+  Component { id: systemView; SystemView { service: root } }
+  readonly property var views: ({ visualizer: visualizerView, lyrics: lyricsView, clock: clockView, system: systemView })
 
   // --- arranging ------------------------------------------------------------------------
 
@@ -486,19 +583,26 @@ Item {
     onExited: root.editing = false
   }
 
+  // One screen's layer. `group`: "bottom" (behind the windows) or "top"
+  // (above them), each with "-blur" for widgets with a blurred card (Hyprland
+  // blurs that layer, see the layer rule in hypr_screens.lua). The edit layer
+  // holds every widget.
   component Layer: PanelWindow {
     id: panel
     required property var modelData
     property bool editLayer: false
+    property string group: "bottom"
     readonly property var hyprMonitor: Hyprland.monitorFor(modelData)
     readonly property bool fullscreen: !!(hyprMonitor && hyprMonitor.activeWorkspace && hyprMonitor.activeWorkspace.hasFullscreen)
     screen: modelData
-    visible: root.anyOn(modelData) && (editLayer ? root.editing : (!root.editing && !fullscreen)) && !remap.remapping
+    visible: root.anyOn(modelData, editLayer ? "" : group) && (editLayer ? root.editing : (!root.editing && !fullscreen))
+             && !remap.remapping
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: editLayer ? "hypr-screens-widgets-edit" : "hypr-screens-widgets"
-    WlrLayershell.layer: editLayer ? WlrLayer.Overlay : WlrLayer.Bottom
+    WlrLayershell.namespace: editLayer ? "hypr-screens-widgets-edit"
+                             : "hypr-screens-widgets" + (group === "bottom" ? "" : "-" + group)
+    WlrLayershell.layer: editLayer ? WlrLayer.Overlay : (group.indexOf("top") === 0 ? WlrLayer.Top : WlrLayer.Bottom)
     // While arranging, Esc must reach it; otherwise it never takes the keyboard.
     WlrLayershell.keyboardFocus: editLayer ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     // Clicks go through, except while arranging.
@@ -561,25 +665,22 @@ Item {
         }
       }
 
-      Placed {
-        service: root; kind: "visualizer"; editable: panel.editLayer
-        visible: root.onDesktop(kind) && root.screenMatches(kind, panel.modelData)
-        VisualizerView { service: root; editing: panel.editLayer }
-      }
-      Placed {
-        service: root; kind: "lyrics"; editable: panel.editLayer
-        visible: root.onDesktop(kind) && root.screenMatches(kind, panel.modelData)
-        LyricsView { service: root; editing: panel.editLayer }
-      }
-      Placed {
-        service: root; kind: "clock"; editable: panel.editLayer
-        visible: root.onDesktop(kind) && root.screenMatches(kind, panel.modelData)
-        ClockView { service: root }
-      }
-      Placed {
-        service: root; kind: "system"; editable: panel.editLayer
-        visible: root.onDesktop(kind) && root.screenMatches(kind, panel.modelData)
-        SystemView { service: root }
+      Repeater {
+        model: root.kinds
+        Placed {
+          id: placed
+          required property string modelData
+          service: root
+          kind: modelData
+          editable: panel.editLayer
+          visible: root.shows(kind, panel.modelData, panel.editLayer ? "" : panel.group)
+          Loader {
+            id: view
+            active: placed.visible
+            sourceComponent: root.views[placed.kind] || null
+          }
+          Binding { target: view.item; property: "editing"; value: panel.editLayer; when: view.item !== null }
+        }
       }
     }
   }
@@ -614,7 +715,19 @@ Item {
 
   Variants {
     model: Quickshell.screens
-    Layer {}
+    Layer { group: "bottom" }
+  }
+  Variants {
+    model: Quickshell.screens
+    Layer { group: "bottom-blur" }
+  }
+  Variants {
+    model: Quickshell.screens
+    Layer { group: "top" }
+  }
+  Variants {
+    model: Quickshell.screens
+    Layer { group: "top-blur" }
   }
   Variants {
     model: Quickshell.screens

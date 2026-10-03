@@ -60,6 +60,12 @@ def widgets_keys() -> set[str]:
 
     source = (ROOT / "gui" / "widgets_tab.py").read_text()
     keys = set(widgets.TITLES.values())
+    for group, parts in [*(g for groups in widgets.PARTS.values() for g in groups), widgets.LOOK_PARTS]:
+        keys |= {group} | {title for _part, title, _default in parts}
+    colors = (ROOT / "gui" / "widget_colors.py").read_text()
+    for node in ast.parse(colors).body:
+        if isinstance(node, ast.Assign) and node.targets[0].id == "THEME_NAMES":
+            keys |= set(ast.literal_eval(node.value).values())
     for node in ast.parse(source).body:
         if not isinstance(node, ast.Assign):
             continue
@@ -69,7 +75,10 @@ def widgets_keys() -> set[str]:
         if name == "CHOICE_LABELS":
             keys |= {text for labels in ast.literal_eval(node.value).values() for text in labels.values()}
         if name == "SECTIONS":
-            keys |= {title for sections in ast.literal_eval(node.value).values() for title, _keys in sections}
+            keys |= {item.elts[0].value for item in ast.walk(node.value)
+                     if isinstance(item, ast.Tuple) and item.elts and isinstance(item.elts[0], ast.Constant)}
+        if name == "EXPANDERS":
+            keys |= {title for title, _keys in ast.literal_eval(node.value).values()}
         if name == "NUMBER_ROWS":
             keys |= set(ast.literal_eval(node.value).values())
         if name == "SLIDER_ROWS":

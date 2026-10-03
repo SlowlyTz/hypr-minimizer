@@ -27,7 +27,15 @@ Widgets sit on the desktop **behind the windows**. The Widgets page lists them w
 | **Clock** | time and date | 24 or 12 hours, date, seconds |
 | **System** | CPU, memory and temperature with a curve of the last two minutes | each gauge on or off, curves on or off |
 
-Every widget also has an accent color (theme accent, theme text or white; the visualizer also a gradient) and an opacity, and can show on the laptop screen, all external screens, all screens, or one particular external monitor (recognised by its make, model and serial, whatever port it is on).
+Every widget has its own **look**:
+
+- an **accent color** (theme accent, theme text or white; the visualizer also a gradient) and an **opacity**,
+- **colors** for each part on their own, on a page of their own: e.g. the clock's hours, colon, minutes, seconds, AM/PM, weekday and date, each gauge's label, value, curve and area, the visualizer's bars and tips. A part takes the widget's accent, a theme color (it follows a theme change) or an own color with transparency, or stays on its default,
+- the **font**: family, weight and letter spacing,
+- an **effect**: outline, shadow or glow, with its strength,
+- a **background card**: corners, room around, opacity, and on request a blur of what is behind it.
+
+Every widget can show on the laptop screen, all external screens, all screens, or one particular external monitor (recognised by its make, model and serial, whatever port it is on).
 
 - **Placing:** a widget switched on for the first time appears in the middle of the screen and arranging starts. While arranging, every screen with a widget shows just the wallpaper – an empty desktop – with the widgets on it: drag them, pull the handles on their frame to resize them, turn them with the wheel (5° a notch, 1° with Shift), then **Save** or **Cancel** in the bar at the top of the screen (Enter saves, Esc cancels). **Arrange** in the app starts it again later.
 - **Resizing:** a corner scales the whole widget; an edge makes it only wider or taller (the visualizer's bars get thicker or longer, the system widget wider). The lyrics' box is their text: its height is shared by the visible lines and the font fills each line, a line too long for the width gets smaller or takes two rows. The clock always scales. The opposite side stays where it is, also on a turned widget. The size is set only here, not in the app.

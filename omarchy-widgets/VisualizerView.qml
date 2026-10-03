@@ -21,9 +21,13 @@ Item {
   readonly property real thickness: wide > 0 ? Math.max(1, wide / (count * 1.5 - 0.5))
                                              : Math.max(3, Math.round(length / 22))
   readonly property real gap: wide > 0 ? thickness / 2 : Math.max(2, Math.round(thickness / 2))
-  readonly property bool gradient: settings && settings.color === "gradient"
   readonly property bool mirrored: !!(settings && settings.style === "mirrored")
   readonly property color tint: service ? service.tint("visualizer") : Color.accent
+  // The bars' color, and their tips' (a gradient when set or chosen).
+  readonly property color bars: service ? service.colorOf("visualizer", "bars", tint) : tint
+  readonly property color tips: service ? service.colorOf("visualizer", "bars_end", Qt.lighter(bars, 1.5)) : bars
+  readonly property bool gradient: !!(settings && settings.color === "gradient")
+                                   || !!(service && service.hasColor("visualizer", "bars_end"))
 
   implicitWidth: count * thickness + (count - 1) * gap
   implicitHeight: length
@@ -49,13 +53,13 @@ Item {
         height: Math.max(view.thickness, view.level(index) * view.length)
         y: view.mirrored ? (view.length - height) / 2 : view.length - height
         radius: view.thickness / 2
-        color: view.tint
+        color: view.bars
         gradient: view.gradient ? barGradient : null
         Gradient {
           id: barGradient
-          GradientStop { position: 0.0; color: Qt.lighter(view.tint, 1.5) }
-          GradientStop { position: view.mirrored ? 0.5 : 1.0; color: view.tint }
-          GradientStop { position: 1.0; color: view.mirrored ? Qt.lighter(view.tint, 1.5) : view.tint }
+          GradientStop { position: 0.0; color: view.tips }
+          GradientStop { position: view.mirrored ? 0.5 : 1.0; color: view.bars }
+          GradientStop { position: 1.0; color: view.mirrored ? view.tips : view.bars }
         }
         Behavior on height { NumberAnimation { duration: 60 } }
       }

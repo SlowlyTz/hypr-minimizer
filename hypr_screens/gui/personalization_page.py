@@ -95,11 +95,14 @@ class PersonalizationPage:
         self.widgets_tab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         self.nav.add_named(self.subpage(t("Window"), self.window_tab), "window")
         self.nav.add_named(self.subpage(t("Widgets"), self.widgets_tab), "widgets")
-        widget_pages = {}
+        widget_pages, color_pages = {}, {}
         for kind in widgets.KINDS:
             widget_pages[kind] = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
             self.nav.add_named(self.subpage(t(widgets.TITLES[kind]), widget_pages[kind], back="widgets"),
                                f"widget-{kind}")
+            color_pages[kind] = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+            self.nav.add_named(self.subpage(t("{widget}: colors", widget=t(widgets.TITLES[kind])), color_pages[kind],
+                                            back=f"widget-{kind}"), f"widget-{kind}-colors")
 
         # The dock: Apply and Reset stay visible while the sliders scroll.
         footer = self.window.footers["personalization"]
@@ -113,7 +116,7 @@ class PersonalizationPage:
         footer.append(self.apply_button)
 
         self.build_window_tab()
-        self.widgets = WidgetsTab(self.window, self.widgets_tab, widget_pages, self.open)
+        self.widgets = WidgetsTab(self.window, self.widgets_tab, widget_pages, color_pages, self.open)
         self.open("home")
 
     def subpage(self, title: str, body: Gtk.Box, back: str = "home") -> Gtk.Box:

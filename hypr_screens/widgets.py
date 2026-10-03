@@ -10,6 +10,7 @@ size plus a rotation, the same on every chosen monitor; the size is set by
 pulling the edges and corners while arranging ("width" 0: from the size).
 """
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,10 +28,39 @@ MONITOR_MODES = ["laptop", "external", "all", "screen"]
 # can also use a gradient of the accent.
 COLORS = ["accent", "gradient", "foreground", "white"]
 TEXT_COLORS = ["accent", "foreground", "white"]
+# The theme's colors a part can take (from colors.toml, so they follow a theme
+# change); "accent" alone is the widget's own accent color (above).
+THEME_COLORS = ["accent", "foreground", "muted", "background", "red", "orange", "yellow", "green", "cyan",
+                "blue", "magenta"]
+COLOR_VALUE = re.compile(r"^(accent|theme:(" + "|".join(THEME_COLORS) + r")|#[0-9a-f]{6}([0-9a-f]{2})?)$")
+# Every widget's font, effect and background card. font_family "": the
+# Omarchy font. The effect: an outline on the text, a shadow or a glow
+# around everything, or none.
+STYLE = {"font_family": "", "font_weight": "bold", "letter_spacing": 0, "effect": "outline", "effect_strength": 35,
+         "card": False, "card_radius": 16, "card_padding": 16, "card_opacity": 45, "card_blur": False, "colors": {}}
+FONT_WEIGHTS = ["light", "regular", "medium", "bold", "black"]
+EFFECTS = ["outline", "shadow", "glow", "none"]
+# Each widget's parts that have a color, in groups: (group title, [(part,
+# title, default)]). Defaults: "accent", "theme:<name>", "#rrggbbaa", or
+# "auto" (worked out by the widget, e.g. the effect's color by its kind).
+LOOK_PARTS = ("Card and effect", [("card", "Card", "theme:background"), ("effect", "Effect", "auto")])
+PARTS = {
+    "visualizer": [("Bars", [("bars", "Bars", "accent"), ("bars_end", "Bar tips", "auto")])],
+    "lyrics": [("Lines", [("current", "Line being sung", "accent"), ("sung", "Words already sung", "accent"),
+                          ("waiting", "Words still to sing", "theme:foreground"),
+                          ("upcoming", "Coming lines", "theme:foreground"), ("past", "Lines sung", "theme:foreground")])],
+    "clock": [("Time", [("hours", "Hours", "theme:foreground"), ("colon", "Colon", "theme:foreground"),
+                        ("minutes", "Minutes", "theme:foreground"), ("seconds", "Seconds", "theme:foreground"),
+                        ("ampm", "AM/PM", "theme:foreground")]),
+              ("Date", [("weekday", "Weekday", "accent"), ("date", "Date", "accent")])],
+    "system": [(group, [(f"{gauge}_label", "Label", "theme:foreground"), (f"{gauge}_value", "Value", "accent"),
+                        (f"{gauge}_line", "Curve", "accent"), (f"{gauge}_fill", "Area under the curve", "auto")])
+               for gauge, group in (("cpu", "CPU usage"), ("memory", "Memory"), ("temperature", "Temperature"))],
+}
 # Where a widget first appears: the middle, so it can be dragged from there.
 CENTER = {"x": 0.5, "y": 0.5, "rotation": 0}
 ALL_SCREENS = {"mode": "all", "screen": ""}
-DEFAULTS = {
+BASE = {
     "visualizer": {"enabled": False, "where": "both", "monitors": ALL_SCREENS, "bars": 32, "style": "bottom",
                    "color": "accent", "opacity": 100, "size": 160, "width": 0, "placed": False, **CENTER},
     "lyrics": {"enabled": False, "monitors": ALL_SCREENS, "highlight": "line", "align": "center", "lines": 3,
@@ -42,19 +72,24 @@ DEFAULTS = {
                "curves": True, "color": "accent", "opacity": 100, "size": 100, "width": 0,
                "placed": False, **CENTER},
 }
+DEFAULTS = {kind: {**base, **STYLE} for kind, base in BASE.items()}
 # The values a setting can take; the first-listed default is in DEFAULTS.
+STYLE_CHOICES = {"font_weight": FONT_WEIGHTS, "effect": EFFECTS}
 CHOICES = {
-    "visualizer": {"where": WHERE, "style": ["bottom", "mirrored"], "color": COLORS},
+    "visualizer": {"where": WHERE, "style": ["bottom", "mirrored"], "color": COLORS, **STYLE_CHOICES},
     # line: the line being sung in the accent color, word: each word as it is
     # sung, off: no color, only the size sets it apart.
-    "lyrics": {"highlight": ["line", "word", "off"], "align": ["center", "left", "right"], "color": TEXT_COLORS},
-    "clock": {"hours": ["24", "12"], "color": TEXT_COLORS},
-    "system": {"color": TEXT_COLORS},
+    "lyrics": {"highlight": ["line", "word", "off"], "align": ["center", "left", "right"], "color": TEXT_COLORS,
+               **STYLE_CHOICES},
+    "clock": {"hours": ["24", "12"], "color": TEXT_COLORS, **STYLE_CHOICES},
+    "system": {"color": TEXT_COLORS, **STYLE_CHOICES},
 }
 TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "system": "System"}
 LOCALES = {"en": "en_US", "de": "de_DE", "es": "es_ES", "fr": "fr_FR", "it": "it_IT"}
 # key: (minimum, maximum)
-RANGES = {"bars": (8, 64), "lines": (1, 10), "opacity": (20, 100), "rotation": (-360, 360)}
+RANGES = {"bars": (8, 64), "lines": (1, 10), "opacity": (20, 100), "rotation": (-360, 360),
+          "letter_spacing": (-2, 20), "effect_strength": (0, 100), "card_radius": (0, 60), "card_padding": (0, 80),
+          "card_opacity": (5, 100)}
 # The visualizer's and the lyrics' size is their height in pixels (the lyrics'
 # font fills it), the others' a scale in percent.
 SIZE_RANGES = {"visualizer": (30, 600), "lyrics": (40, 1200), "clock": (30, 400), "system": (50, 300)}
@@ -79,6 +114,21 @@ def number(value: object, low: float, high: float, fallback: float, whole: bool 
     return int(round(value)) if whole else round(float(value), 4)
 
 
+def part_defaults(kind: str) -> dict[str, str]:
+    return {part: default for _group, parts in [*PARTS[kind], LOOK_PARTS] for part, _title, default in parts}
+
+
+def clean_colors(kind: str, raw: object) -> dict[str, str]:
+    """Only known parts with a valid color ("accent", "theme:<name>", "#rrggbb[aa]")."""
+    known = part_defaults(kind)
+    colors = {}
+    for part, value in (raw.items() if isinstance(raw, dict) else []):
+        value = str(value).lower()
+        if part in known and COLOR_VALUE.match(value):
+            colors[part] = value
+    return colors
+
+
 def normalize(raw: object) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     widgets = {}
@@ -92,6 +142,8 @@ def normalize(raw: object) -> dict:
                 widget[key] = bool(given.get(key, default))
             elif key in RANGES:
                 widget[key] = number(given.get(key), *RANGES[key], default)
+        widget["font_family"] = str(given.get("font_family") or "")[:100]
+        widget["colors"] = clean_colors(kind, given.get("colors"))
         monitors = given.get("monitors") if isinstance(given.get("monitors"), dict) else {}
         if monitors.get("mode") in MONITOR_MODES:
             widget["monitors"] = {"mode": monitors["mode"], "screen": str(monitors.get("screen") or "")}
@@ -180,6 +232,8 @@ def export(cfg: dict) -> None:
         "font": font(),
         "locale": LOCALES.get(language, "en_US"),
         "ranges": {kind: {"size": SIZE_RANGES[kind], "width": WIDTH_RANGES.get(kind)} for kind in KINDS},
+        "kinds": KINDS,
+        "parts": {kind: part_defaults(kind) for kind in KINDS},
         "texts": {
             **{kind: t(title) for kind, title in TITLES.items()},
             "hint": t("Drag to move  ·  pull edges and corners to resize  ·  scroll to turn (Shift: fine)"),
@@ -254,9 +308,21 @@ def wire_shell(widgets: dict) -> list[str]:
     return done
 
 
+_blur_rule_sent = False
+
+
 def apply(cfg: dict) -> None:
+    global _blur_rule_sent
     export(cfg)
-    wire_shell(normalize(cfg.get("widgets")))
+    state = normalize(cfg.get("widgets"))
+    wire_shell(state)
+    if not _blur_rule_sent and any(w["card"] and w["card_blur"] for w in state.values()):
+        # In the Lua file too; this makes it live before the next reload.
+        from hypr_screens import hypr, keybinds
+
+        for line in keybinds.WIDGETS_BLUR_RULE.splitlines():
+            hypr.eval_lua(line)
+        _blur_rule_sent = True
 
 
 def start_editing() -> bool:

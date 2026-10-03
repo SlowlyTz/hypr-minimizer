@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import qs.Commons
 
 // Puts one widget at its spot: the centre at (x, y) as fractions of the
@@ -7,6 +8,9 @@ import qs.Commons
 // handles on its frame: a corner scales it, an edge makes it only wider or
 // taller (the clock always scales), and the opposite side stays where it is.
 // Every change goes into the service's draft, so all screens follow along.
+//
+// Its look: an optional card behind it (with room around the view, `pad`),
+// a shadow or glow around all of it, and its opacity.
 Item {
   id: placed
 
@@ -19,12 +23,16 @@ Item {
   readonly property var settings: service ? service.widget(kind) : null
   readonly property string title: service && service.texts && service.texts[kind] ? service.texts[kind] : kind
   readonly property real frameMargin: Style.space(10)
+  readonly property bool card: !!(settings && settings.card)
+  readonly property real pad: card ? settings.card_padding : 0
+  readonly property string effect: settings ? settings.effect : "outline"
+  readonly property real strength: settings ? settings.effect_strength / 100 : 0.35
   // The resize in progress: the side pulled, the sizes and the pointer at the
   // press, and the point (opposite side) that stays put.
   property var resize: null
 
-  width: holder.childrenRect.width
-  height: holder.childrenRect.height
+  width: holder.childrenRect.width + 2 * pad
+  height: holder.childrenRect.height + 2 * pad
   x: spot.x * (parent ? parent.width : 0) - width / 2
   y: spot.y * (parent ? parent.height : 0) - height / 2
   rotation: spot.rotation
@@ -65,9 +73,10 @@ Item {
     var cy = spot.y * parent.height
     var offset = toScreen(-sx * width / 2, -sy * height / 2)
     resize = {
-      sx: sx, sy: sy, pointer: point, width: width, height: height, size: spot.size,
+      // The view's own size, without the card's room around it.
+      sx: sx, sy: sy, pointer: point, width: width - 2 * pad, height: height - 2 * pad, size: spot.size,
       // No width of its own yet: the one it has now.
-      wide: spot.width > 0 ? spot.width : width,
+      wide: spot.width > 0 ? spot.width : width - 2 * pad,
       anchor: { x: cx + offset.x, y: cy + offset.y }
     }
   }
@@ -129,11 +138,39 @@ Item {
     border.width: 2
   }
 
+  // The card and the view, drawn as one so the shadow or glow takes both.
   Item {
-    id: holder
-    width: childrenRect.width
-    height: childrenRect.height
+    id: body
+    anchors.fill: parent
     opacity: placed.settings ? placed.settings.opacity / 100 : 1
+    layer.enabled: placed.effect === "shadow" || placed.effect === "glow"
+    layer.effect: MultiEffect {
+      shadowEnabled: true
+      shadowColor: placed.service ? placed.service.colorOf(placed.kind, "effect",
+                                     placed.effect === "glow" ? placed.service.tint(placed.kind) : "black") : "black"
+      shadowBlur: placed.effect === "glow" ? Math.min(1, 0.3 + placed.strength) : Math.min(1, 0.2 + placed.strength * 0.8)
+      shadowOpacity: placed.effect === "glow" ? Math.min(1, 0.4 + placed.strength * 0.6) : Math.min(1, 0.3 + placed.strength * 0.7)
+      shadowHorizontalOffset: placed.effect === "glow" ? 0 : 2 + placed.strength * 6
+      shadowVerticalOffset: placed.effect === "glow" ? 0 : 2 + placed.strength * 6
+      shadowScale: placed.effect === "glow" ? 1.02 : 1
+      blurMax: 48
+    }
+
+    Rectangle {
+      visible: placed.card
+      anchors.fill: parent
+      radius: placed.settings ? placed.settings.card_radius : 0
+      readonly property color base: placed.service ? placed.service.colorOf(placed.kind, "card", Color.background) : Color.background
+      color: Qt.rgba(base.r, base.g, base.b, base.a * (placed.settings ? placed.settings.card_opacity / 100 : 0.45))
+    }
+
+    Item {
+      id: holder
+      x: placed.pad
+      y: placed.pad
+      width: childrenRect.width
+      height: childrenRect.height
+    }
   }
 
   Rectangle {

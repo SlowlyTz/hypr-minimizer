@@ -51,6 +51,13 @@ CYCLE_BINDS = [
 ]
 
 
+# One rule per layer (a pattern with "(-top)?" does not match); ignore_alpha
+# keeps the blur behind the cards instead of the whole screen.
+WIDGETS_BLUR_RULE = "\n".join(
+    f'hl.layer_rule({{ match = {{ namespace = "hypr-screens-widgets-{group}-blur" }}, blur = true, ignore_alpha = 0.03 }})'
+    for group in ("bottom", "top"))
+
+
 def lua_file() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "hypr" / "hypr_screens.lua"
@@ -193,6 +200,8 @@ def render(cfg: dict, runtime: bool = False) -> str:
     window_look = look.lua_table(cfg.get("look") or {})
     if window_look:
         lines += ["", "-- Window look from Personalization → Window (overrides the Omarchy theme).", window_look]
+    lines += ["", "-- Desktop widgets with a blurred card sit on their own layers, blurred here.",
+              WIDGETS_BLUR_RULE]
     lines += [
         "",
         "-- Empty keymap used while the menu records a new shortcut, so keys that are",

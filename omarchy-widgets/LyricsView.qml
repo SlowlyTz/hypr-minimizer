@@ -26,6 +26,8 @@ Item {
   readonly property string highlight: settings ? settings.highlight : "line"
   readonly property string align: settings ? settings.align : "center"
   readonly property color tint: service ? service.tint("lyrics") : Color.accent
+  readonly property var look: service ? service.textLook("lyrics") : ({ family: "", weight: 700, lighter: 400, spacing: 0, outline: false })
+  function paint(part, fallback) { return view.service ? view.service.colorOf("lyrics", part, fallback) : fallback }
   readonly property bool hidePaused: !!(settings && settings.hide_paused)
   readonly property var lines: service ? service.lyricLines : []
   readonly property bool hasLyrics: lines.length > 0
@@ -55,8 +57,8 @@ Item {
   function wordLine(index, time) {
     var words = view.service ? view.service.wordsFor(index) : []
     if (!words.length) return view.escaped(view.shown[index] ? view.shown[index].text : "")
-    var sung = String(view.tint)
-    var waiting = String(Color.foreground)
+    var sung = view.cssColor(view.paint("sung", view.tint))
+    var waiting = view.cssColor(view.paint("waiting", Color.foreground))
     var out = []
     for (var i = 0; i < words.length; i++) {
       out.push('<font color="' + (words[i].t <= time + 0.1 ? sung : waiting) + '">' + view.escaped(words[i].text) + "</font>")
@@ -72,6 +74,12 @@ Item {
     if (total <= view.height) return (view.height - total) / 2
     var middle = (Math.floor((view.shownLines - 1) / 2) - view.current) * view.slot
     return Math.max(view.height - total, Math.min(0, middle))
+  }
+
+  // StyledText takes #aarrggbb.
+  function cssColor(c) {
+    function two(v) { var h = Math.round(v * 255).toString(16); return h.length < 2 ? "0" + h : h }
+    return "#" + two(c.a) + two(c.r) + two(c.g) + two(c.b)
   }
 
   // A new song (or lyrics) jumps into place; only the next line scrolls.
@@ -106,18 +114,20 @@ Item {
         lineHeight: 0.95
         textFormat: byWord ? Text.StyledText : Text.PlainText
         text: byWord ? view.wordLine(index, view.service ? view.service.songTime : 0) : (modelData.text || "♪")
-        color: sung && view.highlight === "line" ? view.tint : Color.foreground
+        color: sung ? (view.highlight === "line" ? view.paint("current", view.tint) : view.paint("waiting", Color.foreground))
+                    : view.paint(distance > 0 ? "upcoming" : "past", Color.foreground)
         // Inside the box once the column has moved: the coming lines a bit
         // brighter than the ones sung; outside it, gone.
         readonly property real slotTop: view.columnY + index * view.slot
         readonly property bool inside: slotTop > -view.slot / 2 && slotTop + view.slot < view.height + view.slot / 2
         opacity: !inside ? 0 : (sung ? 1 : (distance > 0 ? 0.7 : 0.4))
         scale: sung ? 1 : view.restScale
-        font.family: view.service ? view.service.fontFamily : ""
+        font.family: view.look.family
         font.pixelSize: view.fontSize
-        font.bold: true
-        style: Text.Outline
-        styleColor: Qt.rgba(0, 0, 0, 0.35)
+        font.weight: view.look.weight
+        font.letterSpacing: view.look.spacing * view.fontSize / 30
+        style: view.look.outline ? Text.Outline : Text.Normal
+        styleColor: view.look.outline ? view.look.outlineColor : "transparent"
         Behavior on opacity { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 350 } }

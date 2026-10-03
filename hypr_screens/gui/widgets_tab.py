@@ -20,28 +20,32 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
 
 from hypr_screens import config, widgets  # noqa: E402
+from hypr_screens.gui import widget_colors  # noqa: E402
 from hypr_screens.i18n import t  # noqa: E402
 
 DEBOUNCE_MS = 300
 # A widget's page: (section title, settings), top to bottom. The size is set
 # by arranging; "arrange" is the row that starts it.
+LOOK = ["color", "colors", "font", "effect", "card", "opacity"]
 SECTIONS = {
-    "visualizer": [("Placement", ["where", "screens", "arrange"]), ("Content", ["bars", "style"]),
-                   ("Look", ["color", "opacity"])],
+    "visualizer": [("Placement", ["where", "screens", "arrange"]), ("Content", ["bars", "style"]), ("Look", LOOK)],
     "lyrics": [("Placement", ["screens", "arrange"]), ("Content", ["highlight", "lines", "hide_paused"]),
-               ("Look", ["align", "color", "opacity"])],
-    "clock": [("Placement", ["screens", "arrange"]), ("Content", ["hours", "date", "seconds"]),
-              ("Look", ["color", "opacity"])],
+               ("Look", ["align", *LOOK])],
+    "clock": [("Placement", ["screens", "arrange"]), ("Content", ["hours", "date", "seconds"]), ("Look", LOOK)],
     "system": [("Placement", ["screens", "arrange"]), ("Content", ["cpu", "memory", "temperature", "curves"]),
-               ("Look", ["color", "opacity"])],
+               ("Look", LOOK)],
 }
+# Rows that fold out: key: (title, the settings inside). "card" has its own switch.
+EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"]),
+             "effect": ("Effect", ["effect", "effect_strength"]),
+             "card": ("Background card", ["card_radius", "card_padding", "card_opacity", "card_blur"])}
 ICONS = {"visualizer": "audio-volume-high-symbolic", "lyrics": "format-justify-center-symbolic",
          "clock": "alarm-symbolic", "system": "computer-symbolic"}
 # The setting a widget's summary in the overview names after its screens.
 SUMMARY = {"visualizer": "where", "lyrics": "highlight", "clock": "hours"}
 # Settings picked from a list (widgets.CHOICES): their title and labels.
 CHOICE_TITLES = {"where": "Where", "style": "Style", "highlight": "Highlight", "align": "Alignment",
-                 "hours": "Time format", "color": "Accent color"}
+                 "hours": "Time format", "color": "Accent color", "font_weight": "Weight", "effect": "Effect"}
 CHOICE_LABELS = {
     "where": {"bar": "In the bar", "desktop": "On the desktop", "both": "Bar and desktop"},
     "style": {"bottom": "Bars from the bottom", "mirrored": "Mirrored from the middle"},
@@ -49,11 +53,17 @@ CHOICE_LABELS = {
     "align": {"center": "Centered", "left": "Left", "right": "Right"},
     "hours": {"24": "24-hour", "12": "12-hour"},
     "color": {"accent": "Theme accent", "gradient": "Gradient", "foreground": "Theme text", "white": "White"},
+    "font_weight": {"light": "Light", "regular": "Regular", "medium": "Medium", "bold": "Bold", "black": "Black"},
+    "effect": {"outline": "Outline", "shadow": "Shadow", "glow": "Glow", "none": "None"},
 }
 SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "seconds": "Show seconds",
-                 "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves"}
+                 "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves",
+                 "card_blur": "Blur behind the card"}
 # key: (title, step, unit); the range is widgets.RANGES.
-SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %")}
+SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
+               "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
+               "card_radius": ("Corners", 2, " px"), "card_padding": ("Room around", 2, " px"),
+               "card_opacity": ("Card opacity", 5, " %")}
 # Whole numbers typed in (or stepped with − and +): key: title; the range is widgets.RANGES.
 NUMBER_ROWS = {"lines": "Lines"}
 HINTS = {
@@ -81,12 +91,15 @@ def combo(title: str, labels: list[str], selected: int) -> Adw.ComboRow:
 
 
 class WidgetsTab:
-    def __init__(self, window, tab: Gtk.Box, pages: dict[str, Gtk.Box], open_page):
-        """tab: the overview; pages: each widget's page; open_page(name) shows
-        "widget-<kind>" (or "widgets") in the Personalization stack."""
+    def __init__(self, window, tab: Gtk.Box, pages: dict[str, Gtk.Box], color_pages: dict[str, Gtk.Box], open_page):
+        """tab: the overview; pages: each widget's page, color_pages its colors;
+        open_page(name) shows "widget-<kind>", "widget-<kind>-colors" (or
+        "widgets") in the Personalization stack."""
         self.window = window
         self.tab = tab
         self.pages = pages
+        self.color_pages = color_pages
+        self.colors = widget_colors.ColorsPage(window, self.change)
         self.open_page = open_page
         self.editing = False
         self.updating = False
@@ -135,6 +148,8 @@ class WidgetsTab:
         state = self.current()
         for kind in widgets.KINDS:
             self.build_page(kind, state[kind])
+            self.clear(self.color_pages[kind])
+            self.colors.build(self.color_pages[kind], kind, state[kind])
         GLib.idle_add(self.end_update)
 
     def build_overview(self) -> None:
@@ -225,7 +240,36 @@ class WidgetsTab:
         group.add(row)
         return group
 
-    def row(self, kind: str, key: str, widget: dict) -> Gtk.Widget:
+    def row(self, kind: str, key: str, widget: dict, inside: bool = False) -> Gtk.Widget:
+        if key == "colors":
+            row = Adw.ActionRow(title=t("Colors"), subtitle=t("Every part on its own."), activatable=True)
+            row.add_suffix(widget_colors.preview(widget, kind))
+            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            row.connect("activated", lambda _r: self.open_page(f"widget-{kind}-colors"))
+            return row
+        if key in EXPANDERS and not inside:
+            title, keys = EXPANDERS[key]
+            row = Adw.ExpanderRow(title=t(title), subtitle=self.expander_summary(key, widget))
+            if key == "card":
+                row.set_show_enable_switch(True)
+                row.set_enable_expansion(widget["card"])
+                row.connect("notify::enable-expansion", self.on_card, kind)
+            for inner in keys:
+                row.add_row(self.row(kind, inner, widget, inside=True))
+            return row
+        if key == "font_family":
+            row = Adw.ActionRow(title=t("Font"), subtitle=widget["font_family"] or t("The Omarchy font"))
+            button = Gtk.FontDialogButton(dialog=Gtk.FontDialog(title=t("Font")), level=Gtk.FontLevel.FAMILY,
+                                          valign=Gtk.Align.CENTER)
+            button.set_font_desc(Pango.FontDescription.from_string(widget["font_family"] or widgets.font() or "monospace"))
+            button.connect("notify::font-desc", self.on_font, kind)
+            row.add_suffix(button)
+            if widget["font_family"]:
+                reset = Gtk.Button(icon_name="edit-undo-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
+                reset.set_tooltip_text(t("Back to the Omarchy font"))
+                reset.connect("clicked", lambda _b: self.change(kind, lambda w: w.__setitem__("font_family", ""), True))
+                row.add_suffix(reset)
+            return row
         if key == "arrange":
             row = Adw.ActionRow(title=t("Size and place"),
                                 subtitle=t("Arranging – drag the widgets on the desktop now.") if self.editing
@@ -314,6 +358,29 @@ class WidgetsTab:
             return
         active = row.get_active()
         self.change(kind, lambda widget: widget.__setitem__(key, active))
+
+    def expander_summary(self, key: str, widget: dict) -> str:
+        if key == "font":
+            return f"{widget['font_family'] or t('The Omarchy font')} · {t(CHOICE_LABELS['font_weight'][widget['font_weight']])}"
+        if key == "effect":
+            name = t(CHOICE_LABELS["effect"][widget["effect"]])
+            return name if widget["effect"] == "none" else f"{name} · {widget['effect_strength']} %"
+        if not widget["card"]:
+            return t("Off")
+        return t("Blurred") if widget["card_blur"] else t("On")
+
+    def on_card(self, row: Adw.ExpanderRow, _param, kind: str) -> None:
+        if self.updating:
+            return
+        on = row.get_enable_expansion()
+        self.change(kind, lambda widget: widget.__setitem__("card", on), True)
+
+    def on_font(self, button: Gtk.FontDialogButton, _param, kind: str) -> None:
+        if self.updating:
+            return
+        desc = button.get_font_desc()
+        family = desc.get_family() if desc else ""
+        self.change(kind, lambda widget: widget.__setitem__("font_family", family or ""), True)
 
     def on_number(self, row: Adw.SpinRow, _param, kind: str, key: str) -> None:
         if self.updating:
