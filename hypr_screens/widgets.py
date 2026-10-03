@@ -9,6 +9,7 @@ for the visualizer. Placement is a point on the screen as a fraction of its
 size plus a rotation, the same on every chosen monitor; the size is set by
 pulling the edges and corners while arranging ("width" 0: from the size).
 """
+import functools
 import json
 import re
 import shutil
@@ -51,6 +52,9 @@ EFFECTS = ["outline", "shadow", "glow", "none"]
 # Each widget's parts that have a color, in groups: (group title, [(part,
 # title, default)]). Defaults: "accent", "theme:<name>", "#rrggbbaa", or
 # "auto" (worked out by the widget, e.g. the effect's color by its kind).
+# Clock parts that only some styles have: group title -> styles.
+PART_GROUP_STYLES = {"Time": ["digital", "flip", "words"], "Analog clock": ["analog"], "Flip cards": ["flip"],
+                     "Word clock": ["words"]}
 LOOK_PARTS = ("Card and effect", [("card", "Card", "theme:background"), ("effect", "Effect", "auto")])
 PARTS = {
     "visualizer": [("Bars", [("bars", "Bars", "accent"), ("bars_end", "Bar tips", "auto")])],
@@ -60,7 +64,14 @@ PARTS = {
     "clock": [("Time", [("hours", "Hours", "theme:foreground"), ("colon", "Colon", "theme:foreground"),
                         ("minutes", "Minutes", "theme:foreground"), ("seconds", "Seconds", "theme:foreground"),
                         ("ampm", "AM/PM", "theme:foreground")]),
-              ("Date", [("weekday", "Weekday", "accent"), ("date", "Date", "accent")])],
+              ("Analog clock", [("face", "Dial", "auto"), ("ticks", "Marks", "theme:foreground"),
+                                ("hour_hand", "Hour hand", "theme:foreground"),
+                                ("minute_hand", "Minute hand", "theme:foreground"),
+                                ("second_hand", "Second hand", "accent")]),
+              ("Flip cards", [("flip_card", "Cards", "auto")]),
+              ("Word clock", [("words", "Words in between", "auto")]),
+              ("Date", [("weekday", "Weekday", "accent"), ("date", "Date", "accent")]),
+              ("Second time zone", [("zone", "Second time zone", "theme:foreground")])],
     "system": [(group, [(f"{gauge}_label", "Label", "theme:foreground"), (f"{gauge}_value", "Value", "accent"),
                         (f"{gauge}_line", "Curve", "accent"), (f"{gauge}_fill", "Area under the curve", "auto")])
                for gauge, group in (("cpu", "CPU usage"), ("memory", "Memory"), ("temperature", "Temperature"))],
@@ -74,7 +85,8 @@ BASE = {
     "lyrics": {"enabled": False, "monitors": ALL_SCREENS, "highlight": "line", "align": "center", "lines": 3,
                "hide_paused": False, "color": "accent", "opacity": 100, "size": 200, "width": 0,
                "placed": False, **CENTER},
-    "clock": {"enabled": False, "monitors": ALL_SCREENS, "hours": "24", "date": True, "seconds": False,
+    "clock": {"enabled": False, "monitors": ALL_SCREENS, "clock_style": "digital", "hours": "24", "date": True,
+              "seconds": False, "weekday": True, "date_format": "long", "date_pattern": "", "zone2": "",
               "color": "accent", "opacity": 100, "size": 100, "placed": False, **CENTER},
     "system": {"enabled": False, "monitors": ALL_SCREENS, "cpu": True, "memory": True, "temperature": True,
                "curves": True, "color": "accent", "opacity": 100, "size": 100, "width": 0,
@@ -89,7 +101,9 @@ CHOICES = {
     # sung, off: no color, only the size sets it apart.
     "lyrics": {"highlight": ["line", "word", "off"], "align": ["center", "left", "right"], "color": TEXT_COLORS,
                **STYLE_CHOICES},
-    "clock": {"hours": ["24", "12"], "color": TEXT_COLORS, **STYLE_CHOICES},
+    # digital; analog with hands; flip cards; words ("quarter past six").
+    "clock": {"clock_style": ["digital", "analog", "flip", "words"], "hours": ["24", "12"],
+              "date_format": ["long", "medium", "short", "iso", "custom"], "color": TEXT_COLORS, **STYLE_CHOICES},
     "system": {"color": TEXT_COLORS, **STYLE_CHOICES},
 }
 TITLES = {"visualizer": "Visualizer", "lyrics": "Lyrics", "clock": "Clock", "system": "System"}
@@ -123,6 +137,16 @@ def number(value: object, low: float, high: float, fallback: float, whole: bool 
         return fallback
     value = max(low, min(high, value))
     return int(round(value)) if whole else round(float(value), 4)
+
+
+@functools.cache
+def time_zones() -> frozenset[str]:
+    try:
+        import zoneinfo
+
+        return frozenset(zoneinfo.available_timezones())
+    except Exception:
+        return frozenset()
 
 
 def part_defaults(kind: str) -> dict[str, str]:
@@ -167,6 +191,10 @@ def normalize(raw: object) -> dict:
             elif key in RANGES:
                 widget[key] = number(given.get(key), *RANGES[key], default)
         widget["font_family"] = str(given.get("font_family") or "")[:100]
+        if kind == "clock":
+            widget["date_pattern"] = str(given.get("date_pattern") or "")[:60]
+            zone = str(given.get("zone2") or "")
+            widget["zone2"] = zone if zone in time_zones() else ""
         desktops = given.get("desktops") if isinstance(given.get("desktops"), list) else []
         widget["desktops"] = sorted({d for d in desktops if isinstance(d, int) and not isinstance(d, bool)
                                      and (1 <= d <= 10 or d == FIXED_DESKTOP)})

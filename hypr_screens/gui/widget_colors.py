@@ -127,6 +127,11 @@ class ColorsPage:
         hint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         page.append(hint)
         for title, parts in [*widgets.PARTS[kind], widgets.LOOK_PARTS]:
+            styles = widgets.PART_GROUP_STYLES.get(title) if kind == "clock" else None
+            if styles and widget.get("clock_style", "digital") not in styles:
+                continue  # parts the chosen clock style does not have
+            if title == "Second time zone" and not widget.get("zone2"):
+                continue
             group = Adw.PreferencesGroup(title=t(title))
             for part, part_title, default in parts:
                 group.add(self.part_row(kind, widget, part, t(part_title), default, palette))

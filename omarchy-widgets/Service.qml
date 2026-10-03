@@ -500,6 +500,39 @@ Item {
     onTriggered: root.now = new Date()
   }
 
+  // The second time zone's offset from UTC in minutes (from `date`, so
+  // summer time is right); asked again every ten minutes.
+  readonly property string zone: root.widget("clock") ? String(root.widget("clock").zone2 || "") : ""
+  property int zoneOffset: 0
+  property bool zoneKnown: false
+  onZoneChanged: { root.zoneKnown = false; root.askZone() }
+  // The command is set here: a binding on `zone` could still hold the old one.
+  function askZone() {
+    if (!root.zone || zoneProcess.running) return
+    zoneProcess.command = ["sh", "-c", "TZ=\"$1\" date +%z", "sh", root.zone]
+    zoneProcess.running = true
+  }
+  Process {
+    id: zoneProcess
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var match = String(text).trim().match(/^([+-])(\d\d)(\d\d)$/)
+        if (!match) return
+        root.zoneOffset = (match[1] === "-" ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3]))
+        root.zoneKnown = true
+      }
+    }
+  }
+  Timer {
+    interval: 600000
+    repeat: true
+    running: root.zone !== "" && root.enabled("clock")
+    onTriggered: root.askZone()
+  }
+  function zoneTime(date) {
+    return new Date(date.getTime() + (root.zoneOffset + date.getTimezoneOffset()) * 60000)
+  }
+
   // --- system ----------------------------------------------------------------------------
 
   property real cpu: 0

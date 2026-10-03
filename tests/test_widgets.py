@@ -159,3 +159,12 @@ def test_layouts_save_load_and_follow_the_screens():
     cfg = widgets.rename_layout(cfg, "Music", "Party")
     cfg = widgets.delete_layout(cfg, "Work")
     assert [layout["name"] for layout in config.normalize(cfg)["widget_layouts"]] == ["Party"]
+
+
+def test_clock_styles_dates_and_zones():
+    clock = widgets.normalize({"clock": {"clock_style": "flip", "date_format": "custom", "date_pattern": "x" * 99,
+                                         "zone2": "Europe/Rome", "weekday": False}})["clock"]
+    assert (clock["clock_style"], clock["date_format"], clock["zone2"], clock["weekday"]) == ("flip", "custom",
+                                                                                             "Europe/Rome", False)
+    assert len(clock["date_pattern"]) == 60
+    assert widgets.normalize({"clock": {"clock_style": "sundial", "zone2": "Nowhere/Land"}})["clock"]["zone2"] == ""

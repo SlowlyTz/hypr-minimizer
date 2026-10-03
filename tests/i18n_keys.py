@@ -78,7 +78,7 @@ def widgets_keys() -> set[str]:
             keys |= {item.elts[0].value for item in ast.walk(node.value)
                      if isinstance(item, ast.Tuple) and item.elts and isinstance(item.elts[0], ast.Constant)}
         if name == "EXPANDERS":
-            keys |= {title for title, _keys in ast.literal_eval(node.value).values()}
+            keys |= {title for title, _keys, _switch in ast.literal_eval(node.value).values()}
         if name == "NUMBER_ROWS":
             keys |= set(ast.literal_eval(node.value).values())
         if name == "SLIDER_ROWS":

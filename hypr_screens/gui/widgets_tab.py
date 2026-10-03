@@ -33,22 +33,27 @@ SECTIONS = {
                    ("Look", LOOK)],
     "lyrics": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["highlight", "lines", "hide_paused"]),
                ("Look", ["align", *LOOK])],
-    "clock": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["hours", "date", "seconds"]),
+    "clock": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY, ("Content", ["clock_style", "hours", "seconds", "date_group", "zone2"]),
               ("Look", LOOK)],
     "system": [("Placement", ["screens", "same_place", "arrange"]), VISIBILITY,
                ("Content", ["cpu", "memory", "temperature", "curves"]), ("Look", LOOK)],
 }
-# Rows that fold out: key: (title, the settings inside). "card" has its own switch.
-EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"]),
-             "effect": ("Effect", ["effect", "effect_strength"]),
-             "card": ("Background card", ["card_radius", "card_padding", "card_opacity", "card_blur"])}
+# Rows that fold out: key: (title, the settings inside, the setting its own
+# switch turns on and off, if any).
+EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"], None),
+             "effect": ("Effect", ["effect", "effect_strength"], None),
+             "card": ("Background card", ["card_radius", "card_padding", "card_opacity", "card_blur"], "card"),
+             "date_group": ("Date", ["weekday", "date_format", "date_pattern"], "date")}
+# Choices that change which rows there are.
+REBUILDS = {"where", "date_format", "clock_style"}
 ICONS = {"visualizer": "audio-volume-high-symbolic", "lyrics": "format-justify-center-symbolic",
          "clock": "alarm-symbolic", "system": "computer-symbolic"}
 # The setting a widget's summary in the overview names after its screens.
 SUMMARY = {"visualizer": "where", "lyrics": "highlight", "clock": "hours"}
 # Settings picked from a list (widgets.CHOICES): their title and labels.
 CHOICE_TITLES = {"where": "Where", "style": "Style", "highlight": "Highlight", "align": "Alignment",
-                 "hours": "Time format", "color": "Accent color", "font_weight": "Weight", "effect": "Effect"}
+                 "hours": "Time format", "color": "Accent color", "font_weight": "Weight", "effect": "Effect",
+                 "clock_style": "Style", "date_format": "Date format"}
 CHOICE_LABELS = {
     "where": {"bar": "In the bar", "desktop": "On the desktop", "both": "Bar and desktop"},
     "style": {"bottom": "Bars from the bottom", "mirrored": "Mirrored from the middle"},
@@ -58,12 +63,15 @@ CHOICE_LABELS = {
     "color": {"accent": "Theme accent", "gradient": "Gradient", "foreground": "Theme text", "white": "White"},
     "font_weight": {"light": "Light", "regular": "Regular", "medium": "Medium", "bold": "Bold", "black": "Black"},
     "effect": {"outline": "Outline", "shadow": "Shadow", "glow": "Glow", "none": "None"},
+    "clock_style": {"digital": "Digital", "analog": "Analog", "flip": "Flip cards", "words": "In words"},
+    "date_format": {"long": "Long (3 October)", "medium": "Medium (3 Oct 2026)", "short": "Short (as the language writes it)",
+                    "iso": "ISO (2026-10-03)", "custom": "Own pattern"},
 }
 SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "seconds": "Show seconds",
                  "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves",
                  "card_blur": "Blur behind the card", "only_empty": "Only on an empty desktop",
                  "hide_on_battery": "Hide on battery", "above": "Above the windows",
-                 "same_place": "Same place on every screen"}
+                 "same_place": "Same place on every screen", "weekday": "Show the weekday"}
 # key: (title, step, unit); the range is widgets.RANGES.
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
@@ -315,14 +323,30 @@ class WidgetsTab:
             row.connect("activated", lambda _r: self.open_page(f"widget-{kind}-colors"))
             return row
         if key in EXPANDERS and not inside:
-            title, keys = EXPANDERS[key]
+            title, keys, switch = EXPANDERS[key]
             row = Adw.ExpanderRow(title=t(title), subtitle=self.expander_summary(key, widget))
-            if key == "card":
+            if switch:
                 row.set_show_enable_switch(True)
-                row.set_enable_expansion(widget["card"])
-                row.connect("notify::enable-expansion", self.on_card, kind)
+                row.set_enable_expansion(widget[switch])
+                row.connect("notify::enable-expansion", self.on_expander_switch, kind, switch)
             for inner in keys:
+                if inner == "date_pattern" and widget["date_format"] != "custom":
+                    continue
                 row.add_row(self.row(kind, inner, widget, inside=True))
+            return row
+        if key == "date_pattern":
+            row = Adw.EntryRow(title=t("Own pattern, e.g. dd.MM.yyyy or dddd d MMMM"), text=widget["date_pattern"],
+                               show_apply_button=True)
+            row.connect("apply", lambda e: self.change(kind, lambda w: w.__setitem__("date_pattern", e.get_text())))
+            return row
+        if key == "zone2":
+            zones = ["", *sorted(widgets.time_zones())]
+            row = Adw.ComboRow(title=t("Second time zone"),
+                               model=Gtk.StringList.new([t("Off"), *[z.replace("_", " ") for z in zones[1:]]]))
+            row.set_enable_search(True)
+            row.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+            row.set_selected(zones.index(widget["zone2"]) if widget["zone2"] in zones else 0)
+            row.connect("notify::selected", self.on_choice, kind, "zone2", zones)
             return row
         if key == "desktops":
             return self.desktops_row(kind, widget)
@@ -414,7 +438,7 @@ class WidgetsTab:
         if self.updating:
             return
         value = values[row.get_selected()]
-        self.change(kind, lambda widget: widget.__setitem__(key, value), rebuild=key == "where")
+        self.change(kind, lambda widget: widget.__setitem__(key, value), rebuild=key in REBUILDS)
 
     def on_screens(self, row: Adw.ComboRow, _param, kind: str, choices) -> None:
         if self.updating:
@@ -472,6 +496,8 @@ class WidgetsTab:
     def expander_summary(self, key: str, widget: dict) -> str:
         if key == "font":
             return f"{widget['font_family'] or t('The Omarchy font')} · {t(CHOICE_LABELS['font_weight'][widget['font_weight']])}"
+        if key == "date_group":
+            return t(CHOICE_LABELS["date_format"][widget["date_format"]]) if widget["date"] else t("Off")
         if key == "effect":
             name = t(CHOICE_LABELS["effect"][widget["effect"]])
             return name if widget["effect"] == "none" else f"{name} · {widget['effect_strength']} %"
@@ -479,11 +505,11 @@ class WidgetsTab:
             return t("Off")
         return t("Blurred") if widget["card_blur"] else t("On")
 
-    def on_card(self, row: Adw.ExpanderRow, _param, kind: str) -> None:
+    def on_expander_switch(self, row: Adw.ExpanderRow, _param, kind: str, key: str) -> None:
         if self.updating:
             return
         on = row.get_enable_expansion()
-        self.change(kind, lambda widget: widget.__setitem__("card", on), True)
+        self.change(kind, lambda widget: widget.__setitem__(key, on), True)
 
     def on_font(self, button: Gtk.FontDialogButton, _param, kind: str) -> None:
         if self.updating:
