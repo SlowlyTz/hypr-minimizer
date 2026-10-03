@@ -35,6 +35,8 @@ Every widget has its own **look**:
 - an **effect**: outline, shadow or glow, with its strength,
 - a **background card**: corners, room around, opacity, and on request a blur of what is behind it.
 
+When a widget shows (**Visibility**): only on some desktops (1–10 or the fixed screen; none picked: on every one), only while its desktop has no window, not on battery, and **above the windows** instead of behind them.
+
 Every widget can show on the laptop screen, all external screens, all screens, or one particular external monitor (recognised by its make, model and serial, whatever port it is on).
 
 - **Placing:** a widget switched on for the first time appears in the middle of the screen and arranging starts. While arranging, every screen with a widget shows just the wallpaper – an empty desktop – with the widgets on it: drag them, pull the handles on their frame to resize them, turn them with the wheel (5° a notch, 1° with Shift), then **Save** or **Cancel** in the bar at the top of the screen (Enter saves, Esc cancels). **Arrange** in the app starts it again later.

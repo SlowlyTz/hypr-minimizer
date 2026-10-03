@@ -38,6 +38,11 @@ COLOR_VALUE = re.compile(r"^(accent|theme:(" + "|".join(THEME_COLORS) + r")|#[0-
 # around everything, or none.
 STYLE = {"font_family": "", "font_weight": "bold", "letter_spacing": 0, "effect": "outline", "effect_strength": 35,
          "card": False, "card_radius": 16, "card_padding": 16, "card_opacity": 45, "card_blur": False, "colors": {}}
+# When a widget shows: on these desktops only ([]: all; 1-10, FIXED_DESKTOP:
+# the fixed screen), only while its desktop has no window, not on battery;
+# above the windows instead of behind them.
+FIXED_DESKTOP = 99
+VISIBILITY = {"desktops": [], "only_empty": False, "hide_on_battery": False, "above": False}
 FONT_WEIGHTS = ["light", "regular", "medium", "bold", "black"]
 EFFECTS = ["outline", "shadow", "glow", "none"]
 # Each widget's parts that have a color, in groups: (group title, [(part,
@@ -72,7 +77,7 @@ BASE = {
                "curves": True, "color": "accent", "opacity": 100, "size": 100, "width": 0,
                "placed": False, **CENTER},
 }
-DEFAULTS = {kind: {**base, **STYLE} for kind, base in BASE.items()}
+DEFAULTS = {kind: {**base, **STYLE, **VISIBILITY} for kind, base in BASE.items()}
 # The values a setting can take; the first-listed default is in DEFAULTS.
 STYLE_CHOICES = {"font_weight": FONT_WEIGHTS, "effect": EFFECTS}
 CHOICES = {
@@ -143,6 +148,9 @@ def normalize(raw: object) -> dict:
             elif key in RANGES:
                 widget[key] = number(given.get(key), *RANGES[key], default)
         widget["font_family"] = str(given.get("font_family") or "")[:100]
+        desktops = given.get("desktops") if isinstance(given.get("desktops"), list) else []
+        widget["desktops"] = sorted({d for d in desktops if isinstance(d, int) and not isinstance(d, bool)
+                                     and (1 <= d <= 10 or d == FIXED_DESKTOP)})
         widget["colors"] = clean_colors(kind, given.get("colors"))
         monitors = given.get("monitors") if isinstance(given.get("monitors"), dict) else {}
         if monitors.get("mode") in MONITOR_MODES:

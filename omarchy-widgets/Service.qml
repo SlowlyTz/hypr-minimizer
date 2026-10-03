@@ -4,6 +4,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.Mpris
+import Quickshell.Services.UPower
 import qs.Commons
 import qs.Ui
 
@@ -543,9 +544,23 @@ Item {
 
   // --- the layers -----------------------------------------------------------------------
 
-  // Is the widget on this screen, and (without a group: on any layer) in this group?
+  // Is the widget on this screen, and (without a group: on any layer, as while
+  // arranging) in this group and allowed by its rules right now?
   function shows(kind, screen, group) {
-    return root.onDesktop(kind) && root.screenMatches(kind, screen) && (!group || root.groupOf(kind) === group)
+    return root.onDesktop(kind) && root.screenMatches(kind, screen)
+           && (!group || (root.groupOf(kind) === group && root.allowedNow(kind, screen)))
+  }
+  // Its rules: only on some desktops (workspace ids, 99 the fixed screen),
+  // only while the desktop has no window, not on battery.
+  function allowedNow(kind, screen) {
+    var w = root.widget(kind)
+    if (!w) return false
+    if (w.hide_on_battery && UPower.onBattery) return false
+    var monitor = screen ? Hyprland.monitorFor(screen) : null
+    var workspace = monitor ? monitor.activeWorkspace : null
+    if (w.desktops && w.desktops.length && (!workspace || w.desktops.indexOf(workspace.id) < 0)) return false
+    if (w.only_empty && workspace && workspace.toplevels && workspace.toplevels.values.length > 0) return false
+    return true
   }
   function anyOn(screen, group) {
     for (var i = 0; i < root.kinds.length; i++) {

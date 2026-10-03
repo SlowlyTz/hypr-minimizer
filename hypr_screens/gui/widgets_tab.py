@@ -27,13 +27,16 @@ DEBOUNCE_MS = 300
 # A widget's page: (section title, settings), top to bottom. The size is set
 # by arranging; "arrange" is the row that starts it.
 LOOK = ["color", "colors", "font", "effect", "card", "opacity"]
+VISIBILITY = ("Visibility", ["desktops", "only_empty", "hide_on_battery", "above"])
 SECTIONS = {
-    "visualizer": [("Placement", ["where", "screens", "arrange"]), ("Content", ["bars", "style"]), ("Look", LOOK)],
-    "lyrics": [("Placement", ["screens", "arrange"]), ("Content", ["highlight", "lines", "hide_paused"]),
+    "visualizer": [("Placement", ["where", "screens", "arrange"]), VISIBILITY, ("Content", ["bars", "style"]),
+                   ("Look", LOOK)],
+    "lyrics": [("Placement", ["screens", "arrange"]), VISIBILITY, ("Content", ["highlight", "lines", "hide_paused"]),
                ("Look", ["align", *LOOK])],
-    "clock": [("Placement", ["screens", "arrange"]), ("Content", ["hours", "date", "seconds"]), ("Look", LOOK)],
-    "system": [("Placement", ["screens", "arrange"]), ("Content", ["cpu", "memory", "temperature", "curves"]),
-               ("Look", LOOK)],
+    "clock": [("Placement", ["screens", "arrange"]), VISIBILITY, ("Content", ["hours", "date", "seconds"]),
+              ("Look", LOOK)],
+    "system": [("Placement", ["screens", "arrange"]), VISIBILITY,
+               ("Content", ["cpu", "memory", "temperature", "curves"]), ("Look", LOOK)],
 }
 # Rows that fold out: key: (title, the settings inside). "card" has its own switch.
 EXPANDERS = {"font": ("Font", ["font_family", "font_weight", "letter_spacing"]),
@@ -58,7 +61,8 @@ CHOICE_LABELS = {
 }
 SWITCH_TITLES = {"hide_paused": "Hide while paused", "date": "Show the date", "seconds": "Show seconds",
                  "cpu": "CPU usage", "memory": "Memory", "temperature": "Temperature", "curves": "Show the curves",
-                 "card_blur": "Blur behind the card"}
+                 "card_blur": "Blur behind the card", "only_empty": "Only on an empty desktop",
+                 "hide_on_battery": "Hide on battery", "above": "Above the windows"}
 # key: (title, step, unit); the range is widgets.RANGES.
 SLIDER_ROWS = {"bars": ("Bars", 1, ""), "opacity": ("Opacity", 5, " %"),
                "letter_spacing": ("Letter spacing", 1, " px"), "effect_strength": ("Strength", 5, " %"),
@@ -257,6 +261,8 @@ class WidgetsTab:
             for inner in keys:
                 row.add_row(self.row(kind, inner, widget, inside=True))
             return row
+        if key == "desktops":
+            return self.desktops_row(kind, widget)
         if key == "font_family":
             row = Adw.ActionRow(title=t("Font"), subtitle=widget["font_family"] or t("The Omarchy font"))
             button = Gtk.FontDialogButton(dialog=Gtk.FontDialog(title=t("Font")), level=Gtk.FontLevel.FAMILY,
@@ -358,6 +364,47 @@ class WidgetsTab:
             return
         active = row.get_active()
         self.change(kind, lambda widget: widget.__setitem__(key, active))
+
+    def desktops_row(self, kind: str, widget: dict) -> Adw.ExpanderRow:
+        chosen = widget["desktops"]
+        row = Adw.ExpanderRow(title=t("Desktops"), subtitle=self.desktops_summary(chosen))
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=11, column_spacing=4,
+                           row_spacing=4, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+        for desktop in [*range(1, 11), widgets.FIXED_DESKTOP]:
+            text = t("Fixed screen") if desktop == widgets.FIXED_DESKTOP else str(desktop)
+            button = Gtk.ToggleButton(label=text, active=desktop in chosen)
+            button.connect("toggled", self.on_desktop, kind, desktop)
+            flow.append(button)
+        holder = Gtk.ListBoxRow(activatable=False, selectable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(label(t("None picked: on every desktop."), "hint"))
+        box.get_first_child().set_margin_start(8)
+        box.get_first_child().set_margin_top(6)
+        box.append(flow)
+        holder.set_child(box)
+        row.add_row(holder)
+        return row
+
+    @staticmethod
+    def desktops_summary(chosen: list[int]) -> str:
+        if not chosen:
+            return t("Every desktop")
+        names = [t("Fixed screen") if d == widgets.FIXED_DESKTOP else str(d) for d in chosen]
+        return ", ".join(names)
+
+    def on_desktop(self, button: Gtk.ToggleButton, kind: str, desktop: int) -> None:
+        if self.updating:
+            return
+        on = button.get_active()
+
+        def mutate(widget):
+            chosen = set(widget["desktops"])
+            (chosen.add if on else chosen.discard)(desktop)
+            widget["desktops"] = sorted(chosen)
+        self.change(kind, mutate)
+        row = button.get_ancestor(Adw.ExpanderRow)
+        if row is not None:
+            row.set_subtitle(self.desktops_summary(self.current()[kind]["desktops"]))
 
     def expander_summary(self, key: str, widget: dict) -> str:
         if key == "font":

@@ -74,7 +74,7 @@ def widgets_keys() -> set[str]:
             keys |= set(ast.literal_eval(node.value).values())
         if name == "CHOICE_LABELS":
             keys |= {text for labels in ast.literal_eval(node.value).values() for text in labels.values()}
-        if name == "SECTIONS":
+        if name in ("SECTIONS", "VISIBILITY"):
             keys |= {item.elts[0].value for item in ast.walk(node.value)
                      if isinstance(item, ast.Tuple) and item.elts and isinstance(item.elts[0], ast.Constant)}
         if name == "EXPANDERS":

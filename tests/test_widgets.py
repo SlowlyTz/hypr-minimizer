@@ -121,3 +121,10 @@ def test_only_desktop_widgets_keep_the_service_but_leave_the_bar(shell):
 def test_widget_settings_survive_the_config_file():
     cfg = config.normalize({"widgets": {"lyrics": {"enabled": True, "lines": 5, "x": 0.2}}})
     assert cfg["widgets"]["lyrics"]["lines"] == 5 and cfg["widgets"]["lyrics"]["x"] == 0.2
+
+
+def test_visibility_rules_are_kept_clean():
+    clock = widgets.normalize({"clock": {"desktops": [3, 1, 99, 11, True, "x", 3], "only_empty": True,
+                                         "above": True}})["clock"]
+    assert clock["desktops"] == [1, 3, 99] and clock["only_empty"] and clock["above"]
+    assert not clock["hide_on_battery"] and widgets.normalize({})["clock"]["desktops"] == []
