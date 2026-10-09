@@ -195,3 +195,11 @@ def test_the_new_widgets():
     assert state["battery"]["low"] == 50 and state["disk"]["show_free"] and not state["network"]["curves"]
     for kind in widgets.KINDS:
         assert kind in widgets.TITLES and kind in widgets.PARTS and kind in widgets.SIZE_RANGES
+
+
+def test_base_color_is_kept_but_never_the_accent_itself():
+    colors = widgets.clean_colors("clock", {"base": "#FF8800", "hours": "accent", "nope": "#000000"})
+    assert colors == {"base": "#ff8800", "hours": "accent"}
+    assert widgets.clean_colors("clock", {"base": "accent"}) == {}
+    saved = widgets.save_placements(config.normalize({}), {"clock": {"colors": {"base": "theme:red"}}})
+    assert saved["widgets"]["clock"]["colors"] == {"base": "theme:red"}

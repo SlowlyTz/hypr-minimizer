@@ -58,6 +58,9 @@ EFFECTS = ["outline", "shadow", "glow", "none"]
 # Clock parts that only some styles have: group title -> styles.
 PART_GROUP_STYLES = {"Time": ["digital", "flip", "words"], "Analog clock": ["analog"], "Flip cards": ["flip"],
                      "Word clock": ["words"]}
+# Not a part: the color every part on "accent" takes (set in the arrange tool or on
+# the Colors page).
+BASE_PART = "base"
 LOOK_PARTS = ("Card and effect", [("card", "Card", "theme:background"), ("effect", "Effect", "auto")])
 PARTS = {
     "visualizer": [("Bars", [("bars", "Bars", "accent"), ("bars_end", "Bar tips", "auto"),
@@ -221,12 +224,14 @@ def part_titles(kind: str, widget: dict) -> dict[str, str]:
 
 
 def clean_colors(kind: str, raw: object) -> dict[str, str]:
-    """Only known parts with a valid color ("accent", "theme:<name>", "#rrggbb[aa]")."""
+    """Only known parts with a valid color ("accent", "theme:<name>", "#rrggbb[aa]"),
+    and the widget's base color (BASE_PART): what "accent" stands for, in place
+    of its accent setting."""
     known = part_defaults(kind)
     colors = {}
     for part, value in (raw.items() if isinstance(raw, dict) else []):
         value = str(value).lower()
-        if part in known and COLOR_VALUE.match(value):
+        if (part in known or (part == BASE_PART and value != "accent")) and COLOR_VALUE.match(value):
             colors[part] = value
     return colors
 
@@ -408,9 +413,21 @@ def export(cfg: dict) -> None:
             "save": t("Save"),
             "move": t("Move"),
             "colors": t("Colors"),
-            "hintColors": t("Click a part of a widget to give it a color"),
+            "hintColors": t("Click a widget to color it  ·  Ctrl+Z undoes"),
             "recent": t("Recent"),
             "byDefault": t("Default"),
+            "baseColor": t("Base color"),
+            "scheme": t("Color scheme"),
+            "themeColors": t("Theme"),
+            "wallpaper": t("Wallpaper"),
+            "ownColor": t("Own color"),
+            "fineTune": t("Fine-tuning"),
+            "applyAll": t("Apply to all widgets"),
+            "applied": t("Applied to all widgets"),
+            "reset": t("Reset"),
+            "undo": t("Undo (Ctrl+Z)"),
+            "schemes": {"theme": t("Theme"), "mono": t("One color"), "contrast": t("Contrast"),
+                        "pastel": t("Pastel"), "colorful": t("Colorful"), "muted": t("Muted")},
             "cancel": t("Cancel"),
             "lyricsSample": t("The lyrics show here while a song plays"),
             "cpu": "CPU",

@@ -7,6 +7,7 @@ import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
 import qs.Commons
 import qs.Ui
+import "ColorTools.js" as ColorTools
 
 // Desktop widgets of hypr-screens: visualizer, lyrics, clock and system,
 // drawn behind the windows on every chosen screen; the bar visualizer
@@ -123,18 +124,24 @@ Item {
     if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(String(value))) return root.hexColor(value)
     return null
   }
+  // A widget's own colors: part -> value, and its base color ("base"). While
+  // arranging they come from the draft, or from the palette's preview while
+  // the pointer is on a color there.
+  function colorsOf(kind) {
+    if (root.preview && root.preview.kind === kind) return root.preview.colors
+    var spot = root.draft[kind]
+    return spot && spot.colors ? spot.colors : {}
+  }
   // A part's color: set by the user (in the draft while arranging), else its
   // default; `fallback` where the default is "auto".
   function colorOf(kind, part, fallback) {
-    var spot = root.draft[kind]
-    var set = spot && spot.colors ? spot.colors[part] : undefined
+    var set = root.colorsOf(kind)[part]
     var value = set || (root.parts[kind] ? root.parts[kind][part] : undefined) || "accent"
     var color = value === "auto" ? null : root.colorValue(kind, value)
     return color === null ? (fallback !== undefined ? fallback : root.tint(kind)) : color
   }
   function hasColor(kind, part) {
-    var spot = root.draft[kind]
-    return !!(spot && spot.colors && spot.colors[part])
+    return !!root.colorsOf(kind)[part]
   }
 
   readonly property var weights: ({ light: 300, regular: 400, medium: 500, bold: 700, black: 900 })
@@ -166,8 +173,12 @@ Item {
     var w = root.widget(kind)
     return !!(w && w.enabled && (kind !== "visualizer" || w.where !== "bar"))
   }
-  // A widget's accent color (settings "color"; the gradient starts from the accent).
+  // A widget's accent color: its base color, else its "color" setting (the
+  // gradient starts from the accent).
   function tint(kind) {
+    var base = root.colorsOf(kind).base
+    var own = base && base !== "accent" ? root.colorValue(kind, base) : null
+    if (own !== null) return own
     var w = root.widget(kind)
     var name = w ? w.color : "accent"
     if (name === "foreground") return Color.foreground
@@ -838,42 +849,130 @@ Item {
 
   // --- arranging ------------------------------------------------------------------------
 
-  // The color mode: a click on a part of a widget picks it (`selection`:
-  // {kind, part, screen, x, y}) and the palette sets its color in the draft.
+  // The color mode: a click on a widget picks it (`selection`: {kind, part,
+  // screen, x, y, rect}; rect: the widget's frame on the screen) and the
+  // palette sets its colors in the draft. `part` is "base" (the whole widget)
+  // until fine-tuning is open, then the part clicked.
   property bool colorMode: false
   property var selection: null
+  property bool fineTune: false
+  // While the pointer rests on a color or scheme in the palette: {kind, colors}.
+  property var preview: null
   // Own colors used last ("#rrggbb[aa]"), newest first.
   property var recentColors: []
-  function selectPart(kind, part, screen, point) {
-    root.selection = { kind: kind, part: part, screen: screen, x: point.x, y: point.y }
+  // The wallpaper's main colors (the palette works them out when it opens).
+  property var wallpaperColors: []
+  // Where the palette was dragged to, per screen: {screen: {x, y}}.
+  property var palettePlaces: ({})
+  // Every widget's colors before each change, for undo (newest last).
+  property var colorHistory: []
+  function selectPart(kind, part, screen, point, rect) {
+    root.preview = null
+    root.selection = { kind: kind, part: root.fineTune ? part : "base", clicked: part, screen: screen,
+                       x: point.x, y: point.y, rect: rect || null }
   }
-  function setPartColor(kind, part, value, remember) {
+  function remember() {
+    var all = {}
+    for (var kind in root.draft) all[kind] = Object.assign({}, root.draft[kind].colors || {})
+    root.colorHistory = root.colorHistory.concat([all]).slice(-50)
+  }
+  function undoColors() {
+    if (!root.colorHistory.length) return
+    var last = root.colorHistory[root.colorHistory.length - 1]
+    root.colorHistory = root.colorHistory.slice(0, -1)
+    root.preview = null
+    for (var kind in last) root.changePlacement(kind, { colors: last[kind] })
+  }
+  // step: a new step for undo (not for each move while dragging);
+  // keep: among the colors used last.
+  function setPartColor(kind, part, value, step, keep) {
+    if (step) root.remember()
     var colors = Object.assign({}, root.placement(kind).colors || {})
     if (value) colors[part] = value
     else delete colors[part]
     root.changePlacement(kind, { colors: colors })
-    if (remember && value && value.charAt(0) === "#") {
+    if (keep && value && value.charAt(0) === "#") {
       var recent = root.recentColors.filter(function(c) { return c !== value })
       recent.unshift(value)
       root.recentColors = recent.slice(0, 8)
     }
   }
+  function setColors(kind, colors) {
+    root.remember()
+    root.preview = null
+    root.changePlacement(kind, { colors: colors })
+  }
+  // A scheme's colors for a widget, made from its base color as it is now.
+  function schemeColors(kind, id) {
+    var base = (root.placement(kind).colors || {}).base || ""
+    var shown = root.tint(kind)
+    return ColorTools.scheme(id, base, { r: shown.r, g: shown.g, b: shown.b, a: shown.a }, root.parts[kind] || {})
+  }
+  // This widget's colors on every other widget that is on.
+  function applyToAll(kind) {
+    root.remember()
+    var from = root.placement(kind).colors || {}
+    for (var i = 0; i < root.kinds.length; i++) {
+      var other = root.kinds[i]
+      if (other === kind || !root.enabled(other)) continue
+      root.changePlacement(other, { colors: ColorTools.carry(from, root.parts[kind] || {}, root.parts[other] || {}) })
+    }
+  }
 
+  // The palette's place: `kept` (where it was dragged) unless that covers the
+  // widget's frame `rect`; else right of the widget, left, below or above,
+  // whichever fits first (or has the most room), inside `area` and below
+  // its `top` (the toolbar).
+  function placePalette(rect, kept, width, height, area) {
+    var margin = 12, gap = 28
+    var top = (area.top || 0) + margin
+    function fit(x, y) {
+      return { x: Math.max(margin, Math.min(area.width - width - margin, x)),
+               y: Math.max(top, Math.min(area.height - height - margin, y)) }
+    }
+    function covers(p) {
+      return !!rect && p.x < rect.x + rect.width && p.x + width > rect.x && p.y < rect.y + rect.height && p.y + height > rect.y
+    }
+    if (kept) {
+      var there = fit(kept.x, kept.y)
+      if (!covers(there)) return there
+    }
+    if (!rect) return fit((area.width - width) / 2, (area.height - height) / 2)
+    var middleY = rect.y + rect.height / 2 - height / 2
+    var middleX = rect.x + rect.width / 2 - width / 2
+    var sides = [
+      { room: area.width - rect.x - rect.width, need: width, at: fit(rect.x + rect.width + gap, middleY) },
+      { room: rect.x, need: width, at: fit(rect.x - width - gap, middleY) },
+      { room: area.height - rect.y - rect.height, need: height, at: fit(middleX, rect.y + rect.height + gap) },
+      { room: rect.y - top, need: height, at: fit(middleX, rect.y - height - gap) }
+    ]
+    for (var i = 0; i < sides.length; i++) {
+      if (sides[i].room >= sides[i].need + gap + margin && !covers(sides[i].at)) return sides[i].at
+    }
+    sides.sort(function(a, b) { return (b.room - b.need) - (a.room - a.need) })
+    return sides[0].at
+  }
   function startEditing() {
     Hyprland.refreshMonitors()
     root.draft = root.placementsFromSettings()
     root.colorMode = false
     root.selection = null
+    root.preview = null
+    root.colorHistory = []
+    // Worked out again: the wallpaper may have changed.
+    root.wallpaperColors = []
     root.editing = true
   }
   function cancelEditing() {
     root.draft = root.placementsFromSettings()
     root.selection = null
+    root.preview = null
     root.editing = false
   }
   function saveEditing() {
     if (saver.running) return
     root.selection = null
+    root.preview = null
     saver.command = ["hypr-screens", "widgets", "save", JSON.stringify(root.draft)]
     saver.running = true
   }
@@ -920,9 +1019,15 @@ Item {
       id: canvas
       anchors.fill: parent
       focus: panel.editLayer
-      // Esc closes the palette first, then cancels.
+      // Esc closes the palette first, then cancels; Ctrl+Z takes back a color.
       Keys.onEscapePressed: root.selection ? root.selection = null : root.cancelEditing()
       Keys.onReturnPressed: root.saveEditing()
+      Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Z && (event.modifiers & Qt.ControlModifier)) {
+          root.undoColors()
+          event.accepted = true
+        }
+      }
 
       // An empty desktop to arrange on: the wallpaper, over all windows.
       Image {
@@ -985,9 +1090,24 @@ Item {
         id: colorPalette
         z: 20
         service: root
-        visible: panel.editLayer && root.colorMode && !!root.selection && root.selection.screen === root.screenId(panel.modelData)
-        x: root.selection ? Math.max(8, Math.min(canvas.width - width - 8, root.selection.x + 24)) : 0
-        y: root.selection ? Math.max(8, Math.min(canvas.height - height - 8, root.selection.y - height / 3)) : 0
+        screenKey: root.screenId(panel.modelData)
+        visible: panel.editLayer && root.colorMode && !!root.selection && root.selection.screen === screenKey
+        // Where it was dragged to, unless it would hide the widget; else
+        // beside the widget. Never over the toolbar.
+        readonly property var place: {
+          var area = { width: canvas.width, height: canvas.height, top: toolbar.y + toolbar.height }
+          var rect = root.selection ? root.selection.rect : null
+          return root.placePalette(rect, root.palettePlaces[screenKey], width, height, area)
+        }
+        x: place.x
+        y: place.y
+        onMoved: function(x, y) {
+          var places = Object.assign({}, root.palettePlaces)
+          places[screenKey] = { x: x, y: y }
+          root.palettePlaces = places
+          colorPalette.x = Qt.binding(function() { return colorPalette.place.x })
+          colorPalette.y = Qt.binding(function() { return colorPalette.place.y })
+        }
       }
 
       Repeater {

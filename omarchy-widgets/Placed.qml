@@ -23,9 +23,16 @@ Item {
   // the part picked there.
   readonly property bool isPlaced: true
   readonly property bool colorMode: editable && !!service && service.colorMode
-  readonly property string selectedPart: service && service.selection && service.selection.kind === kind
-                                         ? service.selection.part : ""
-  function pickPart(part, point) { service.selectPart(kind, part, screenKey, point) }
+  readonly property bool chosen: !!(service && service.selection && service.selection.kind === kind)
+  readonly property string selectedPart: chosen ? service.selection.part : ""
+  // A click in the color mode: on a part (PartHit) or anywhere else on it ("").
+  // The palette keeps clear of the frame and the badge above it.
+  function pickPart(part, point) {
+    var room = Style.space(64)
+    var rect = placed.mapToItem(null, -frameMargin, -frameMargin - room, width + 2 * frameMargin,
+                                height + 2 * frameMargin + room)
+    service.selectPart(kind, part, screenKey, point, { x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+  }
   default property alias content: holder.data
 
   readonly property var spot: service ? service.placement(kind, screenKey) : { x: 0.5, y: 0.5, rotation: 0, size: 100, width: 0 }
@@ -143,8 +150,16 @@ Item {
     anchors.margins: -placed.frameMargin
     radius: Style.space(10)
     color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, drag.active || placed.resize ? 0.18 : 0.08)
-    border.color: Color.accent
-    border.width: 2
+    border.color: placed.colorMode && placed.chosen ? "white" : Color.accent
+    border.width: placed.colorMode && placed.chosen ? 3 : 2
+
+    // In the color mode a click anywhere on it picks the whole widget.
+    MouseArea {
+      anchors.fill: parent
+      enabled: placed.colorMode
+      cursorShape: Qt.PointingHandCursor
+      onClicked: function(mouse) { placed.pickPart("", mapToItem(null, mouse.x, mouse.y)) }
+    }
   }
 
   // The card and the view, drawn as one so the shadow or glow takes both.

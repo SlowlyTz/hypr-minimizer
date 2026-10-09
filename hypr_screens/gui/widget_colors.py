@@ -38,6 +38,9 @@ def hex_color(color: Gdk.RGBA) -> str:
 def resolve(widget: dict, value: str, palette: dict) -> Gdk.RGBA | None:
     """What a value looks like now (None: worked out by the widget)."""
     if value == "accent":
+        base = widget.get("colors", {}).get(widgets.BASE_PART)
+        if base:
+            return resolve(widget, base, palette)
         choice = widget.get("color", "accent")
         return rgba("#ffffff") if choice == "white" else rgba(palette.get(ACCENTS.get(choice, "accent"), "#89b4fa"))
     if value.startswith("theme:"):
@@ -126,6 +129,10 @@ class ColorsPage:
                          xalign=0, wrap=True, css_classes=["hint"])
         hint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         page.append(hint)
+        group = Adw.PreferencesGroup(title=t("Base color"),
+                                     description=t("Every part on “Widget accent” takes it."))
+        group.add(self.part_row(kind, widget, widgets.BASE_PART, t("Base color"), "accent", palette))
+        page.append(group)
         for title, parts in [*widgets.PARTS[kind], widgets.LOOK_PARTS]:
             styles = widgets.PART_GROUP_STYLES.get(title) if kind == "clock" else None
             if styles and widget.get("clock_style", "digital") not in styles:
@@ -165,7 +172,9 @@ class ColorsPage:
                       margin_start=10, margin_end=10)
         grid = Gtk.FlowBox(max_children_per_line=6, min_children_per_line=6, selection_mode=Gtk.SelectionMode.NONE,
                            column_spacing=4, row_spacing=4)
-        for choice in ["accent", *(f"theme:{name}" for name in widgets.THEME_COLORS)]:
+        # The base is what "accent" stands for: it cannot take the accent itself.
+        first = [] if part == widgets.BASE_PART else ["accent"]
+        for choice in [*first, *(f"theme:{name}" for name in widgets.THEME_COLORS)]:
             chip = Gtk.Button(css_classes=["flat", "circular"])
             chip.set_child(swatch(resolve(widget, choice, palette), 24))
             chip.set_tooltip_text(describe(choice))
