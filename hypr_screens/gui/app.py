@@ -12,11 +12,18 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from hypr_screens import config, desktops, i18n  # noqa: E402
+from hypr_screens import config, desktops, hypr, i18n  # noqa: E402
 from hypr_screens.i18n import t  # noqa: E402
 from hypr_screens.gui import theme  # noqa: E402
 
 APP_ID = "io.github.slowlytz.HyprScreens"
+
+
+def focused_workspace() -> int | None:
+    """The desktop on the screen you are on."""
+    monitor = next((m for m in hypr.monitors() if m.get("focused")), None)
+    workspace = (monitor or {}).get("activeWorkspace") or {}
+    return workspace.get("id")
 
 
 class App(Adw.Application):
@@ -74,10 +81,15 @@ class App(Adw.Application):
         if self.window is None:
             self.window = SettingsWindow(self)
             self.window.connect("close-request", self.on_close)
-        else:
-            self.window.refresh(force=True)
+            self.window.present()
+            GLib.timeout_add(150, self.window.float_centered)
+            return False
+        # Open on another desktop: bring it to this one (asked before present(),
+        # which may switch to the window's desktop).
+        here = None if not self.window.get_visible() else focused_workspace()
+        self.window.refresh(force=True)
         self.window.present()
-        GLib.timeout_add(150, self.window.float_centered)
+        GLib.timeout_add(150, self.window.bring_here, here)
         return False
 
     def reopen_settings(self, page: str) -> bool:

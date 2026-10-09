@@ -9,6 +9,7 @@ finds pages, groups and rows by their titles (gui/search.py).
 """
 import copy
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -948,13 +949,60 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.close()
         return True
 
+    def own_client(self) -> dict | None:
+        return next((c for c in hypr.query_list("clients") if c.get("pid") == os.getpid()), None)
+
     def float_centered(self) -> bool:
         """Fallback for a Lua file without the window rule (keybinds.render): float
         it, sized, centred on the focused screen. With the rule it already floats."""
-        client = next((c for c in hypr.query_list("clients") if c.get("pid") == os.getpid()), None)
-        monitor = next((m for m in hypr.monitors() if m.get("focused")), None)
-        if client is None or monitor is None or client.get("floating"):
+        client = self.own_client()
+        if client is None or client.get("floating"):
             return False
+        self.center(client["address"])
+        return False
+
+    def bring_here(self, workspace: int | None) -> bool:
+        """Shown again while it is open on another desktop: it moves to the one in
+        front of you (`workspace`, taken before showing it), like hypr-minimizer's
+        restore, and is centred there. A minimized window comes back through
+        hypr-minimizer, so its list stays right."""
+        client = self.own_client()
+        if client is None or workspace is None:
+            return False
+        address = client["address"]
+        where = client.get("workspace") or {}
+        if str(where.get("name", "")).startswith("special:minimized") and shutil.which("hypr-minimizer"):
+            subprocess.run(["hypr-minimizer", "restore", address, "--here"], check=False, capture_output=True)
+        elif where.get("id") != workspace:
+            hypr.eval_lua(f"hl.dispatch(hl.dsp.window.move({{ workspace = '{workspace}', follow = true, "
+                          f"window = 'address:{address}' }}))")
+        else:
+            return self.float_centered()
+        self.center(address, workspace)
+        hypr.eval_lua(f"hl.dispatch(hl.dsp.focus({{ window = 'address:{address}' }}))")
+        return False
+
+    def center(self, address: str, workspace: int | None = None) -> None:
+        """Float it, sized and centred on the screen showing `workspace` (else
+        the focused one)."""
+        screens = hypr.monitors()
+        monitor = next((m for m in screens if workspace is not None
+                        and (m.get("activeWorkspace") or {}).get("id") == workspace), None)
+        monitor = monitor or next((m for m in screens if m.get("focused")), None)
+        if monitor is None:
+            return
+        scale = float(monitor.get("scale") or 1)
+        width, height = int(monitor["width"] / scale), int(monitor["height"] / scale)
+        if int(monitor.get("transform") or 0) % 2:
+            width, height = height, width
+        w, h = min(WIDTH, width - 80), min(HEIGHT, height - 80)
+        x, y = monitor["x"] + (width - w) // 2, monitor["y"] + (height - h) // 2
+        window = f"window = 'address:{address}'"
+        hypr.eval_lua("; ".join([
+            f"hl.dispatch(hl.dsp.window.float({{ action = 'enable', {window} }}))",
+            f"hl.dispatch(hl.dsp.window.resize({{ x = {w}, y = {h}, {window} }}))",
+            f"hl.dispatch(hl.dsp.window.move({{ x = {x}, y = {y}, {window} }}))",
+        ]))
         address = client["address"]
         scale = float(monitor.get("scale") or 1)
         width, height = int(monitor["width"] / scale), int(monitor["height"] / scale)

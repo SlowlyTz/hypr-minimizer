@@ -1,6 +1,6 @@
 # The settings window
 
-Opens from the tray icon (or `hypr-screens settings`). On the left the pages, in sections; on the right the page you picked.
+Opens from the tray icon (or `hypr-screens settings`). Already open on another desktop – or minimized – it comes to the desktop you are on, like hypr-minimizer brings a window back. On the left the pages, in sections; on the right the page you picked.
 
 | Section | Page | What is there |
 |---|---|---|
